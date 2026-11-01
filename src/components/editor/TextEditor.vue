@@ -60,7 +60,8 @@
               <span class="more-button__label" aria-hidden="true">More ···</span>
               <svg class="more-button__icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="12" cy="19" r="1.8" /></svg>
             </button>
-            <div id="toolbar-extra-controls" class="toolbar-extra-controls" @keydown.esc.stop.prevent="closeMoreMenu">
+            <Teleport to="body" :disabled="!mobileMorePortal">
+            <div id="toolbar-extra-controls" class="toolbar-extra-controls" :class="{ 'is-mobile-open': mobileMorePortal && moreOpen }" @keydown.esc.stop.prevent="closeMoreMenu">
               <button type="button" class="format-button format-button--bold" :class="{ 'is-active': toolbarState.bold }" :aria-pressed="toolbarState.bold" aria-label="Bold" title="Bold" @mousedown.prevent @click="editor?.chain().focus().toggleBold().run()">B</button>
               <button type="button" class="format-button format-button--italic" :class="{ 'is-active': toolbarState.italic }" :aria-pressed="toolbarState.italic" aria-label="Italic" title="Italic" @mousedown.prevent @click="editor?.chain().focus().toggleItalic().run()">I</button>
               <button type="button" class="format-button format-button--underline" :class="{ 'is-active': toolbarState.underline }" :aria-pressed="toolbarState.underline" aria-label="Underline" title="Underline" @mousedown.prevent @click="editor?.chain().focus().toggleUnderline().run()">U</button>
@@ -89,6 +90,7 @@
                 </label>
               </div>
             </div>
+            </Teleport>
           </div>
           <span class="toolbar-divider" aria-hidden="true"></span>
           <button type="button" class="format-button copy-button" :class="{ 'copy-button--success': copyState === 'copied', 'copy-button--error': copyState === 'error' }" :aria-label="copyLabel" :title="copyLabel" @click="copyAllText">
@@ -186,7 +188,17 @@
           <strong>Writing analysis</strong>
           <button type="button" class="issues-drawer-close" aria-label="Close writing analysis" @click="closeIssuesDrawer">&times;</button>
         </div>
-        <section class="quality-card" :aria-busy="qualityStatus === 'loading'" aria-label="Writing quality score">
+        <section class="quality-panel" :class="{ 'is-collapsed': qualityCollapsed }" aria-labelledby="quality-panel-title">
+          <div class="quality-panel-header">
+            <div>
+              <h2 id="quality-panel-title">Writing quality</h2>
+              <span v-if="qualityAssessment">{{ qualityAssessment.overall_score }}/100</span>
+            </div>
+            <button type="button" class="quality-panel-toggle" :aria-expanded="!qualityCollapsed" aria-controls="quality-panel-content" :aria-label="qualityCollapsed ? 'Expand writing quality' : 'Collapse writing quality'" @click="qualityCollapsed = !qualityCollapsed">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 8 5 5 5-5" /></svg>
+            </button>
+          </div>
+          <div v-show="!qualityCollapsed" id="quality-panel-content" class="quality-card" :aria-busy="qualityStatus === 'loading'">
           <div class="quality-chart" :style="{ '--quality-score': qualityAssessment?.overall_score || 0 }">
             <div class="quality-chart__center">
               <strong>{{ qualityAssessment?.overall_score ?? '–' }}</strong><span>/100</span>
@@ -197,6 +209,7 @@
               <div><span>{{ criterion.label }}</span><strong>{{ criterion.score ?? '–' }}</strong></div>
               <div class="quality-meter" aria-hidden="true"><span :style="{ width: `${criterion.score || 0}%` }"></span></div>
             </div>
+          </div>
           </div>
         </section>
         <div class="sidebar-header">
@@ -340,6 +353,7 @@ const toolbarRef = ref(null)
 const moreButtonRef = ref(null)
 const alignmentTriggerRef = ref(null)
 const moreOpen = ref(false)
+const mobileMorePortal = ref(false)
 const openToolbarMenu = ref(null)
 const paperRef = ref(null)
 const commentInputRef = ref(null)
@@ -374,6 +388,7 @@ const activeVersion = ref(null)
 const saveStatus = ref(savedSession ? 'unsaved' : 'saved')
 const drawerOpen = ref(false)
 const issuesDrawerOpen = ref(false)
+const qualityCollapsed = ref(false)
 const qualityStatus = ref('idle')
 const qualityAssessment = ref(null)
 const documentWordCount = ref(0)
@@ -1737,7 +1752,11 @@ function handleFixAll() {
 
 // Global click outside listener
 const handleDocumentClick = (e) => {
-  if (toolbarRef.value && !toolbarRef.value.contains(e.target)) closeToolbarMenus()
+  if (
+    toolbarRef.value &&
+    !toolbarRef.value.contains(e.target) &&
+    !e.target.closest?.('.toolbar-extra-controls')
+  ) closeToolbarMenus()
   if (
     popoverState.visible &&
     containerRef.value &&
@@ -1746,6 +1765,11 @@ const handleDocumentClick = (e) => {
   ) {
     closePopover()
   }
+}
+
+function handleWindowResize() {
+  mobileMorePortal.value = window.innerWidth <= 600
+  scheduleCommentLayout()
 }
 
 watch(() => appStore.user, async (user, previousUser) => {
@@ -1773,17 +1797,17 @@ watch(() => appStore.user, async (user, previousUser) => {
 
 onMounted(() => {
   window.addEventListener('click', handleDocumentClick)
-  window.addEventListener('resize', scheduleCommentLayout)
+  window.addEventListener('resize', handleWindowResize)
   window.addEventListener('pagehide', handlePageHide)
   appStore.setLogoutGuard(confirmUnsaved)
   resizeObserver = new ResizeObserver(scheduleCommentLayout)
   if (paperRef.value) resizeObserver.observe(paperRef.value)
-  scheduleCommentLayout()
+  handleWindowResize()
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('click', handleDocumentClick)
-  window.removeEventListener('resize', scheduleCommentLayout)
+  window.removeEventListener('resize', handleWindowResize)
   window.removeEventListener('pagehide', handlePageHide)
   appStore.setLogoutGuard(null)
   resizeObserver?.disconnect()
@@ -2756,6 +2780,70 @@ onBeforeUnmount(() => {
   color: #475569;
 }
 
+.quality-panel {
+  flex: 0 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 16px;
+  overflow: hidden;
+  border: 1px solid #dfd2ef;
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.quality-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 13px;
+  border-bottom: 1px solid #e7dff0;
+}
+
+.quality-panel-header > div {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  gap: 8px;
+}
+
+.quality-panel-header h2 {
+  margin: 0;
+  color: var(--text-h);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.quality-panel-header span {
+  color: var(--brand-color);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.quality-panel-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.quality-panel-toggle svg {
+  width: 16px;
+  height: 16px;
+  transition: transform 180ms ease;
+}
+
+.quality-panel:not(.is-collapsed) .quality-panel-toggle svg { transform: rotate(180deg); }
+.quality-panel.is-collapsed .quality-panel-header { border-bottom-color: transparent; }
+
 .quality-card {
   --quality-ring: #7c3aed;
   --quality-ring-track: #e7dcf5;
@@ -2774,11 +2862,10 @@ onBeforeUnmount(() => {
   width: 100%;
   aspect-ratio: 1;
   box-sizing: border-box;
-  margin-bottom: 16px;
   padding: 18px;
   overflow: hidden;
-  border: 1px solid #dfd2ef;
-  border-radius: 14px;
+  border: 0;
+  border-radius: 0;
   background: linear-gradient(145deg, #fcf8ff, #f3ebfa);
 }
 
@@ -2841,9 +2928,15 @@ onBeforeUnmount(() => {
   --quality-clarity: #82b8e8;
   --quality-coherence: #f0a06f;
   --quality-vocabulary: #e694bb;
-  border-color: #4b425c;
   background: linear-gradient(145deg, #302a3c, #292631);
 }
+
+:root[data-theme='dark'] .quality-panel {
+  border-color: #4b425c;
+  background: var(--surface);
+}
+
+:root[data-theme='dark'] .quality-panel-header { border-bottom-color: #4b425c; }
 
 @media (max-width: 700px) {
   .quality-card { gap: 10px; padding: 18px 16px; }
@@ -2898,7 +2991,8 @@ onBeforeUnmount(() => {
   .toolbar-extra-controls {
     display: none;
   }
-  .toolbar-extras.is-open .toolbar-extra-controls {
+  .toolbar-extras.is-open .toolbar-extra-controls,
+  .toolbar-extra-controls.is-mobile-open {
     display: flex;
     position: absolute;
     top: calc(100% + 7px);
@@ -2961,15 +3055,22 @@ onBeforeUnmount(() => {
     overscroll-behavior-x: contain;
     -webkit-overflow-scrolling: touch;
   }
-  .toolbar-extras.is-open .toolbar-extra-controls {
+  .toolbar-extras.is-open .toolbar-extra-controls,
+  .toolbar-extra-controls.is-mobile-open {
     position: fixed;
     top: auto;
     right: 12px;
-    bottom: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
     left: 12px;
+    z-index: 260;
     max-width: none;
     flex-wrap: wrap;
     justify-content: center;
+  }
+  .toolbar-extra-controls.is-mobile-open .toolbar-popover {
+    top: auto;
+    right: 0;
+    bottom: calc(100% + 8px);
   }
   .document-heading { flex-wrap: wrap; }
   .decision-actions { align-items: stretch; flex-direction: column-reverse; }
