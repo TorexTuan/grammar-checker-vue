@@ -14,6 +14,10 @@
         </div>
       </div>
       <div ref="toolbarRef" class="format-toolbar" role="toolbar" aria-label="Text formatting" @keydown.esc="closeToolbarMenus">
+          <button type="button" class="format-button grammar-issues-button" :class="{ 'has-issues': issueList.length > 0 }" :aria-expanded="issuesDrawerOpen" aria-controls="issues-sidebar" aria-label="Open grammar issues" title="Grammar issues" @click="openIssuesDrawer">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11" /><path d="m3.5 6 1.3 1.3L7 5M3.5 12l1.3 1.3L7 11M3.5 18l1.3 1.3L7 17" /></svg>
+            <span v-if="issueList.length" class="grammar-issues-count" aria-hidden="true">{{ issueList.length > 99 ? '99+' : issueList.length }}</span>
+          </button>
           <FormatDropdown
             id="paragraph-style"
             label="Paragraph style"
@@ -51,13 +55,15 @@
             @close="closeToolbarMenus"
           />
           <span class="toolbar-divider" aria-hidden="true"></span>
-          <button type="button" class="format-button format-button--bold" :class="{ 'is-active': toolbarState.bold }" :aria-pressed="toolbarState.bold" aria-label="Bold" title="Bold" @mousedown.prevent @click="editor?.chain().focus().toggleBold().run()">B</button>
-          <button type="button" class="format-button format-button--italic" :class="{ 'is-active': toolbarState.italic }" :aria-pressed="toolbarState.italic" aria-label="Italic" title="Italic" @mousedown.prevent @click="editor?.chain().focus().toggleItalic().run()">I</button>
-          <button type="button" class="format-button format-button--underline" :class="{ 'is-active': toolbarState.underline }" :aria-pressed="toolbarState.underline" aria-label="Underline" title="Underline" @mousedown.prevent @click="editor?.chain().focus().toggleUnderline().run()">U</button>
           <div class="toolbar-extras" :class="{ 'is-open': moreOpen }">
-            <button ref="moreButtonRef" type="button" class="format-button more-button" :aria-expanded="moreOpen" aria-controls="toolbar-extra-controls" title="More formatting" @mousedown.prevent @click="toggleMore">More <span aria-hidden="true">···</span></button>
+            <button ref="moreButtonRef" type="button" class="format-button more-button" :aria-expanded="moreOpen" aria-controls="toolbar-extra-controls" aria-label="More formatting" title="More formatting" @mousedown.prevent @click="toggleMore">
+              <span class="more-button__label" aria-hidden="true">More ···</span>
+              <svg class="more-button__icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="12" cy="19" r="1.8" /></svg>
+            </button>
             <div id="toolbar-extra-controls" class="toolbar-extra-controls" @keydown.esc.stop.prevent="closeMoreMenu">
-              <span class="toolbar-divider" aria-hidden="true"></span>
+              <button type="button" class="format-button format-button--bold" :class="{ 'is-active': toolbarState.bold }" :aria-pressed="toolbarState.bold" aria-label="Bold" title="Bold" @mousedown.prevent @click="editor?.chain().focus().toggleBold().run()">B</button>
+              <button type="button" class="format-button format-button--italic" :class="{ 'is-active': toolbarState.italic }" :aria-pressed="toolbarState.italic" aria-label="Italic" title="Italic" @mousedown.prevent @click="editor?.chain().focus().toggleItalic().run()">I</button>
+              <button type="button" class="format-button format-button--underline" :class="{ 'is-active': toolbarState.underline }" :aria-pressed="toolbarState.underline" aria-label="Underline" title="Underline" @mousedown.prevent @click="editor?.chain().focus().toggleUnderline().run()">U</button>
               <div class="toolbar-menu-wrap">
                 <button ref="alignmentTriggerRef" type="button" class="format-button icon-button" :aria-label="`Align ${toolbarState.align}`" :title="`Align ${toolbarState.align}`" :aria-expanded="openToolbarMenu === 'align'" aria-controls="alignment-menu" aria-haspopup="menu" @mousedown.prevent @click="toggleToolbarMenu('align')" @keydown="handleAlignmentTriggerKeydown">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path v-for="(line, index) in ALIGNMENT_LINES[toolbarState.align]" :key="index" :d="`M${line[0]} ${5 + index * 5}h${line[1]}`" /></svg>
@@ -93,11 +99,14 @@
       </div>
       <div class="editor-actions">
         <span class="visually-hidden" role="status" aria-live="polite">{{ saveStatusLabel }}</span>
-        <button type="button" class="save-button" :disabled="saveStatus === 'saving' || !hasDocumentContent" @click="requestSave">
+        <button type="button" class="save-button" :aria-label="saveStatus === 'saving' ? 'Saving document' : saveStatus === 'error' ? 'Retry saving document' : 'Save document'" :title="saveStatus === 'saving' ? 'Saving document' : saveStatus === 'error' ? 'Retry saving document' : 'Save document'" :disabled="saveStatus === 'saving' || !hasDocumentContent" @click="requestSave">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" /><path d="M17 21v-8H7v8M7 3v5h8" /></svg>
-          {{ saveStatus === 'saving' ? 'Saving…' : saveStatus === 'error' ? 'Retry' : 'Save' }}
+          <span class="save-button__label">{{ saveStatus === 'saving' ? 'Saving…' : saveStatus === 'error' ? 'Retry' : 'Save' }}</span>
         </button>
-        <button type="button" class="check-again-button" :disabled="statusKind === 'checking' || !hasCheckableText" @click="checkAgain">Check again</button>
+        <button type="button" class="check-again-button" aria-label="Check grammar again" title="Check grammar again" :disabled="statusKind === 'checking' || !hasCheckableText" @click="checkAgain">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.34 5.66" /><path d="M20 4v7h-7" /></svg>
+          <span class="check-again-button__label">Check again</span>
+        </button>
       </div>
     </div>
 
@@ -169,7 +178,27 @@
         </div>
       </div>
 
-      <aside id="issues-sidebar" class="issues-sidebar" aria-label="Grammar issues">
+      <Transition name="issues-overlay">
+        <div v-if="issuesDrawerOpen" class="issues-overlay" aria-hidden="true" @mousedown.self="closeIssuesDrawer"></div>
+      </Transition>
+      <aside id="issues-sidebar" class="issues-sidebar" :class="{ 'is-open': issuesDrawerOpen }" aria-label="Writing analysis" @keydown.esc="closeIssuesDrawer">
+        <div class="issues-drawer-topbar">
+          <strong>Writing analysis</strong>
+          <button type="button" class="issues-drawer-close" aria-label="Close writing analysis" @click="closeIssuesDrawer">&times;</button>
+        </div>
+        <section class="quality-card" :aria-busy="qualityStatus === 'loading'" aria-label="Writing quality score">
+          <div class="quality-chart" :style="{ '--quality-score': qualityAssessment?.overall_score || 0 }">
+            <div class="quality-chart__center">
+              <strong>{{ qualityAssessment?.overall_score ?? '–' }}</strong><span>/100</span>
+            </div>
+          </div>
+          <div class="quality-bars">
+            <div v-for="criterion in qualityCriteria" :key="criterion.key" class="quality-bar-row" :class="`quality-bar-row--${criterion.key}`">
+              <div><span>{{ criterion.label }}</span><strong>{{ criterion.score ?? '–' }}</strong></div>
+              <div class="quality-meter" aria-hidden="true"><span :style="{ width: `${criterion.score || 0}%` }"></span></div>
+            </div>
+          </div>
+        </section>
         <div class="sidebar-header">
           <div>
             <h2>Grammar issues</h2>
@@ -227,6 +256,20 @@
           </form>
         </section>
       </div>
+      <div v-if="deleteDialog.visible" class="decision-overlay" @mousedown.self="closeDeleteDialog">
+        <section class="decision-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-document-title" aria-describedby="delete-document-description" @keydown.esc="closeDeleteDialog">
+          <p class="dialog-eyebrow">Delete document</p>
+          <h2 id="delete-document-title">Delete “{{ deleteDialog.document?.title }}”?</h2>
+          <p id="delete-document-description">This document will be permanently removed from your account. This action cannot be undone.</p>
+          <p v-if="deleteDialog.error" class="dialog-error" role="alert">{{ deleteDialog.error }}</p>
+          <div class="decision-actions">
+            <button type="button" class="dialog-button dialog-button--quiet" :disabled="deleteDialog.deleting" @click="closeDeleteDialog">Cancel</button>
+            <button type="button" class="dialog-button dialog-button--danger-solid" :disabled="deleteDialog.deleting" @click="confirmDeleteDocument">
+              {{ deleteDialog.deleting ? 'Deleting…' : 'Delete document' }}
+            </button>
+          </div>
+        </section>
+      </div>
       <div v-if="conflictDocument" class="decision-overlay">
         <section class="decision-dialog" role="dialog" aria-modal="true" aria-labelledby="conflict-title">
           <p class="dialog-eyebrow">Version conflict</p>
@@ -239,6 +282,27 @@
           </div>
         </section>
       </div>
+      <Transition name="comment-reader">
+        <div v-if="activeComment" class="comment-reader-overlay" @mousedown.self="closeCommentReader">
+          <section class="comment-reader-dialog" role="dialog" aria-modal="true" aria-labelledby="comment-reader-title" @keydown.esc="closeCommentReader">
+            <div class="comment-reader-header">
+              <div>
+                <p class="dialog-eyebrow">Comment</p>
+                <h2 id="comment-reader-title">Comment on this text</h2>
+              </div>
+              <button type="button" class="comment-reader-close" aria-label="Close comment" @click="closeCommentReader">&times;</button>
+            </div>
+            <blockquote>{{ activeComment.quote }}</blockquote>
+            <p class="comment-reader-note">{{ activeComment.note }}</p>
+            <time :datetime="activeComment.createdAt">{{ formatCommentTime(activeComment.createdAt) }}</time>
+            <div class="comment-reader-actions">
+              <button type="button" class="dialog-button dialog-button--danger" @click="deleteActiveComment">Delete</button>
+              <button type="button" class="dialog-button" @click="editActiveComment">Edit</button>
+              <button type="button" class="dialog-button dialog-button--primary" @click="closeCommentReader">Close</button>
+            </div>
+          </section>
+        </div>
+      </Transition>
     </Teleport>
 
     <!-- Floating Suggestion Popover -->
@@ -260,13 +324,13 @@ import { useEditor, EditorContent } from '@tiptap/vue-3'
 import { BubbleMenu } from '@tiptap/vue-3/menus'
 import { Fragment } from '@tiptap/pm/model'
 import StarterKit from '@tiptap/starter-kit'
+import Placeholder from '@tiptap/extension-placeholder'
 import { TextStyle, FontSize, FontFamily, Color, BackgroundColor } from '@tiptap/extension-text-style'
 import TextAlign from '@tiptap/extension-text-align'
 import { GrammarIssueMark } from './extensions/GrammarIssueMark'
 import { createCommentDecorations, COMMENT_REFRESH_META } from './extensions/CommentDecorations'
 import FormatDropdown from './FormatDropdown.vue'
 import SuggestionPopover from './SuggestionPopover.vue'
-import { INITIAL_DOC_CONTENT } from './mockData'
 import { grammarApi } from '../../api/grammar'
 import { useAppStore } from '../../stores/app'
 
@@ -281,6 +345,8 @@ const paperRef = ref(null)
 const commentInputRef = ref(null)
 const commentCards = new Map()
 const comments = ref([])
+const activeCommentId = ref(null)
+const activeComment = computed(() => comments.value.find(comment => comment.id === activeCommentId.value) || null)
 const cardTops = ref({})
 const commentRailHeight = ref(0)
 const linkedComments = computed(() => comments.value.filter(comment => !comment.unlinked).sort((a, b) => a.from - b.from))
@@ -289,15 +355,33 @@ const composer = reactive({ visible: false, editingId: null, from: 0, to: 0, quo
 const composerStyle = computed(() => ({ left: `${composer.x}px`, top: `${composer.y}px` }))
 const LEGACY_STORAGE_KEY = 'grammar-checker-document-v1'
 const GUEST_DRAFT_KEY = 'grammar-checker-draft:guest'
+const LEGACY_SAMPLE_HEADING = 'The Societal and Economic Implications of Autonomous AI Systems'
+
+function createEmptyDocument() {
+  return { type: 'doc', content: [{ type: 'paragraph' }] }
+}
+
+function documentContainsText(node, expectedText) {
+  if (!node || typeof node !== 'object') return false
+  if (typeof node.text === 'string' && node.text.includes(expectedText)) return true
+  return Array.isArray(node.content) && node.content.some(child => documentContainsText(child, expectedText))
+}
+
 const savedSession = loadSavedSession(GUEST_DRAFT_KEY, true)
 const documentTitle = ref(savedSession?.title || 'Untitled document')
 const activeDocumentId = ref(null)
 const activeVersion = ref(null)
-const saveStatus = ref('unsaved')
+const saveStatus = ref(savedSession ? 'unsaved' : 'saved')
 const drawerOpen = ref(false)
+const issuesDrawerOpen = ref(false)
+const qualityStatus = ref('idle')
+const qualityAssessment = ref(null)
+const documentWordCount = ref(0)
+const documentCharacterCount = ref(0)
 const conflictDocument = ref(null)
 const decision = reactive({ visible: false, resolve: null, mode: 'unsaved' })
 const titleDialog = reactive({ visible: false, title: '', continueDecision: false })
+const deleteDialog = reactive({ visible: false, document: null, deleting: false, error: '' })
 const saveStatusLabel = computed(() => ({
   saved: 'Saved', unsaved: 'Unsaved', saving: 'Saving…', error: 'Save failed'
 })[saveStatus.value] || 'Unsaved')
@@ -308,6 +392,21 @@ const hasCheckableText = ref(false)
 const hasDocumentContent = ref(false)
 const fixAllNotice = ref('')
 const issueList = computed(() => Object.values(issuesMap).sort((a, b) => a._range.from - b._range.from))
+const QUALITY_MIN_WORDS = 20
+const QUALITY_MAX_CHARACTERS = 10000
+const canAssessQuality = computed(() => (
+  documentWordCount.value >= QUALITY_MIN_WORDS &&
+  documentCharacterCount.value <= QUALITY_MAX_CHARACTERS
+))
+const qualityCriteria = computed(() => {
+  const criteria = qualityAssessment.value?.criteria || {}
+  return [
+    ['grammar', 'Grammar'],
+    ['clarity', 'Clarity'],
+    ['coherence', 'Coherence'],
+    ['vocabulary', 'Vocabulary']
+  ].map(([key, label]) => ({ key, label, ...(criteria[key] || {}) }))
+})
 const FONT_SIZES = [12, 14, 16, 18, 20, 24, 32]
 const FONT_FAMILIES = [
   { label: 'Arial', value: 'Arial' },
@@ -349,11 +448,16 @@ const copyState = ref('idle')
 const copyLabel = computed(() => copyState.value === 'copied' ? 'Copied' : copyState.value === 'error' ? 'Copy failed' : 'Copy')
 
 const DEBOUNCE_MS = 1000
+const QUALITY_DEBOUNCE_MS = 5000
 const BLOCK_SEPARATOR = '\n\n'
 const ACCEPT_TRANSACTION_META = 'grammarAccept'
 const GRAMMAR_DECORATION_META = 'grammarDecorations'
 let debounceTimer = null
 let activeController = null
+let activeQualityController = null
+let qualityDebounceTimer = null
+let qualityRequestSequence = 0
+let lastQualityObservedText = null
 let requestSequence = 0
 let lastObservedText = null
 let popoverCloseTimer = null
@@ -374,9 +478,23 @@ const popoverState = reactive({
   targetElement: null
 })
 
+function countWords(text) {
+  return (text.trim().match(/\S+/g) || []).length
+}
+
+function updateQualityEligibility(text) {
+  documentWordCount.value = countWords(text)
+  documentCharacterCount.value = text.length
+}
+
 // Initialize Tiptap editor
 const editor = useEditor({
-  content: savedSession?.doc || INITIAL_DOC_CONTENT,
+  content: savedSession?.doc || createEmptyDocument(),
+  editorProps: {
+    attributes: {
+      'aria-label': 'Document editor'
+    }
+  },
   extensions: [
     StarterKit.configure({
       heading: {
@@ -388,12 +506,17 @@ const editor = useEditor({
     FontFamily,
     Color,
     BackgroundColor,
+    Placeholder.configure({
+      placeholder: 'Start writing or paste your text here…'
+    }),
     TextAlign.configure({ types: ['heading', 'paragraph'], defaultAlignment: 'left' }),
     GrammarIssueMark,
     createCommentDecorations(() => comments.value)
   ],
   onCreate: ({ editor: editorInstance }) => {
     lastObservedText = buildDocumentSnapshot(editorInstance).text
+    lastQualityObservedText = lastObservedText
+    updateQualityEligibility(lastObservedText)
     hasCheckableText.value = lastObservedText.trim().length >= 3
     hasDocumentContent.value = lastObservedText.trim().length > 0
     validateComments(editorInstance.state.doc)
@@ -403,7 +526,9 @@ const editor = useEditor({
   onTransaction: ({ editor: editorInstance, transaction }) => {
     syncToolbarState(editorInstance)
     if (transaction.docChanged) {
-      hasDocumentContent.value = buildDocumentSnapshot(editorInstance).text.trim().length > 0
+      const currentText = buildDocumentSnapshot(editorInstance).text
+      hasDocumentContent.value = currentText.trim().length > 0
+      updateQualityEligibility(currentText)
     }
     if (transaction.docChanged && !transaction.getMeta(GRAMMAR_DECORATION_META)) {
       mapComments(transaction)
@@ -412,6 +537,9 @@ const editor = useEditor({
     }
   },
   onUpdate: ({ editor: editorInstance, transaction }) => {
+    if (transaction.docChanged && !transaction.getMeta(GRAMMAR_DECORATION_META) && !loadingSession) {
+      scheduleQualityAssessment(editorInstance)
+    }
     if (transaction.getMeta(ACCEPT_TRANSACTION_META)) {
       lastObservedText = buildDocumentSnapshot(editorInstance).text
       hasCheckableText.value = lastObservedText.trim().length >= 3
@@ -425,6 +553,11 @@ const editor = useEditor({
       class: 'prose-editor focus:outline-none'
     },
     handleClick(view, pos, event) {
+      const commentMarker = event.target.closest?.('.comment-marker')
+      if (commentMarker) {
+        openCommentReader(commentMarker.getAttribute('data-comment-id'))
+        return true
+      }
       const target = event.target.closest('.grammar-highlight')
       if (target) {
         const issueId = target.getAttribute('data-issue-id')
@@ -439,6 +572,11 @@ const editor = useEditor({
       return false
     },
     handleKeyDown(view, event) {
+      if ((event.key === 'Enter' || event.key === ' ') && event.target?.classList?.contains('comment-marker')) {
+        event.preventDefault()
+        openCommentReader(event.target.getAttribute('data-comment-id'))
+        return true
+      }
       if ((event.key === 'Enter' || event.key === ' ') && event.target?.classList?.contains('grammar-highlight')) {
         const issue = issuesMap[event.target.getAttribute('data-issue-id')]
         if (issue) {
@@ -474,6 +612,11 @@ function loadSavedSession(key, allowLegacy = false) {
     const raw = localStorage.getItem(key) || (allowLegacy ? localStorage.getItem(LEGACY_STORAGE_KEY) : null)
     const saved = JSON.parse(raw)
     if (![1, 2].includes(saved?.version) || !saved.doc || !Array.isArray(saved.comments)) return null
+    if (documentContainsText(saved.doc, LEGACY_SAMPLE_HEADING)) {
+      localStorage.removeItem(key)
+      if (allowLegacy) localStorage.removeItem(LEGACY_STORAGE_KEY)
+      return null
+    }
     return {
       title: typeof saved.title === 'string' ? saved.title : 'Untitled document',
       documentId: saved.documentId || null,
@@ -638,8 +781,11 @@ function applyDocumentSession(session, { dirty = false } = {}) {
   userHasEdited = dirty
   const pointerKey = activePointerKey()
   if (pointerKey) localStorage.setItem(pointerKey, activeDocumentId.value || 'new')
-  editor.value.commands.setContent(session.content || session.doc || { type: 'doc', content: [{ type: 'paragraph' }] })
+  editor.value.commands.setContent(session.content || session.doc || createEmptyDocument())
   lastObservedText = buildDocumentSnapshot(editor.value).text
+  lastQualityObservedText = lastObservedText
+  invalidateQualityAssessment()
+  updateQualityEligibility(lastObservedText)
   hasCheckableText.value = lastObservedText.trim().length >= 3
   hasDocumentContent.value = lastObservedText.trim().length > 0
   saveStatus.value = dirty ? 'unsaved' : 'saved'
@@ -668,27 +814,60 @@ async function requestOpenDocument(id) {
 }
 
 async function requestNewDocument() {
+  if (!appStore.user) {
+    appStore.openAuth('login', requestNewDocument)
+    return
+  }
   if (!(await confirmUnsaved())) return
   applyDocumentSession({
     id: null,
     version: null,
     title: 'Untitled document',
-    content: { type: 'doc', content: [{ type: 'paragraph' }] },
+    content: createEmptyDocument(),
     comments: []
   }, { dirty: true })
   drawerOpen.value = false
   nextTick(() => editor.value?.commands.focus('start'))
 }
 
-async function requestDeleteDocument(document) {
-  if (!window.confirm(`Delete "${document.title}"? This cannot be undone.`)) return
-  if (document.id === activeDocumentId.value && !(await confirmUnsaved())) return
+function requestDeleteDocument(document) {
+  deleteDialog.document = document
+  deleteDialog.error = ''
+  deleteDialog.visible = true
+}
+
+function closeDeleteDialog() {
+  if (deleteDialog.deleting) return
+  deleteDialog.visible = false
+  deleteDialog.document = null
+  deleteDialog.error = ''
+}
+
+async function confirmDeleteDocument() {
+  const document = deleteDialog.document
+  if (!document || deleteDialog.deleting) return
+
+  if (document.id === activeDocumentId.value && ['unsaved', 'error'].includes(saveStatus.value)) {
+    deleteDialog.visible = false
+    if (!(await confirmUnsaved())) {
+      deleteDialog.document = null
+      return
+    }
+    deleteDialog.visible = true
+  }
+
+  deleteDialog.deleting = true
+  deleteDialog.error = ''
   try {
     await appStore.deleteDocument(document.id)
     removeDraft(currentDraftKey(document.id))
     if (document.id === activeDocumentId.value) await requestNewDocument()
+    deleteDialog.deleting = false
+    closeDeleteDialog()
   } catch {
     saveStatus.value = 'error'
+    deleteDialog.error = 'Unable to delete this document. Please try again.'
+    deleteDialog.deleting = false
   }
 }
 
@@ -697,6 +876,7 @@ function formatDocumentDate(value) {
 }
 
 function confirmUnsaved() {
+  if (!hasDocumentContent.value) return Promise.resolve(true)
   if (!['unsaved', 'error'].includes(saveStatus.value)) return Promise.resolve(true)
   decision.mode = 'unsaved'
   decision.visible = true
@@ -768,11 +948,9 @@ async function saveConflictAsCopy() {
   }
 }
 
-function handleBeforeUnload(event) {
+function handlePageHide() {
   if (!['unsaved', 'error'].includes(saveStatus.value)) return
   saveSession(editor.value)
-  event.preventDefault()
-  event.returnValue = ''
 }
 
 function selectedQuote(doc, from, to) {
@@ -841,6 +1019,30 @@ function closeCommentComposer() {
   composer.note = ''
 }
 
+function openCommentReader(commentId) {
+  if (comments.value.some(comment => comment.id === commentId && !comment.unlinked)) {
+    activeCommentId.value = commentId
+  }
+}
+
+function closeCommentReader() {
+  activeCommentId.value = null
+}
+
+function editActiveComment() {
+  const comment = activeComment.value
+  if (!comment) return
+  closeCommentReader()
+  editComment(comment)
+}
+
+function deleteActiveComment() {
+  const commentId = activeCommentId.value
+  if (!commentId) return
+  closeCommentReader()
+  deleteComment(commentId)
+}
+
 function saveComment() {
   if (!editor.value || !composer.note.trim()) return
   if (composer.editingId) {
@@ -880,6 +1082,7 @@ function deleteComment(id) {
   comments.value = comments.value.filter(comment => comment.id !== id)
   commentCards.delete(id)
   if (composer.editingId === id) closeCommentComposer()
+  if (activeCommentId.value === id) closeCommentReader()
   refreshCommentDecorations()
 }
 
@@ -1127,6 +1330,66 @@ function applyIssuesToDocument(issues, snapshot) {
   tr.setMeta(GRAMMAR_DECORATION_META, true)
   view.dispatch(tr)
   return appliedCount
+}
+
+function openIssuesDrawer() {
+  issuesDrawerOpen.value = true
+}
+
+function closeIssuesDrawer() {
+  issuesDrawerOpen.value = false
+}
+
+function invalidateQualityAssessment() {
+  qualityRequestSequence += 1
+  if (qualityDebounceTimer) clearTimeout(qualityDebounceTimer)
+  qualityDebounceTimer = null
+  if (activeQualityController) activeQualityController.abort()
+  activeQualityController = null
+  qualityAssessment.value = null
+  qualityStatus.value = 'idle'
+}
+
+function scheduleQualityAssessment(editorInstance) {
+  const snapshot = buildDocumentSnapshot(editorInstance)
+  if (snapshot.text === lastQualityObservedText) return
+  lastQualityObservedText = snapshot.text
+  invalidateQualityAssessment()
+  if (!canAssessQuality.value) return
+
+  const sequence = qualityRequestSequence
+  qualityDebounceTimer = setTimeout(() => {
+    qualityDebounceTimer = null
+    runQualityAssessment(sequence, snapshot.text)
+  }, QUALITY_DEBOUNCE_MS)
+}
+
+async function runQualityAssessment(sequence, expectedText) {
+  if (!editor.value || sequence !== qualityRequestSequence || !canAssessQuality.value) return
+  const snapshot = buildDocumentSnapshot(editor.value)
+  if (snapshot.text !== expectedText) return
+  const controller = new AbortController()
+  activeQualityController = controller
+  qualityStatus.value = 'loading'
+  qualityAssessment.value = null
+
+  try {
+    const response = await grammarApi.assessQuality(snapshot.text, 'en-US', controller.signal)
+    if (
+      sequence !== qualityRequestSequence ||
+      !editor.value ||
+      buildDocumentSnapshot(editor.value).text !== snapshot.text
+    ) return
+    if (!response?.success) throw new Error(response?.error || 'Quality assessment failed.')
+    qualityAssessment.value = response
+    qualityStatus.value = 'success'
+  } catch (error) {
+    if (error.isCanceled || error.name === 'CanceledError' || sequence !== qualityRequestSequence) return
+    console.error('Failed to assess writing quality:', error)
+    qualityStatus.value = 'error'
+  } finally {
+    if (activeQualityController === controller) activeQualityController = null
+  }
 }
 
 function scheduleGrammarCheck(editorInstance) {
@@ -1502,16 +1765,16 @@ watch(() => appStore.user, async (user, previousUser) => {
     const guestDraft = loadSavedSession(GUEST_DRAFT_KEY, true)
     applyDocumentSession(guestDraft || {
       title: 'Untitled document',
-      doc: INITIAL_DOC_CONTENT,
+      doc: createEmptyDocument(),
       comments: []
-    }, { dirty: true })
+    }, { dirty: !!guestDraft })
   }
 })
 
 onMounted(() => {
   window.addEventListener('click', handleDocumentClick)
   window.addEventListener('resize', scheduleCommentLayout)
-  window.addEventListener('beforeunload', handleBeforeUnload)
+  window.addEventListener('pagehide', handlePageHide)
   appStore.setLogoutGuard(confirmUnsaved)
   resizeObserver = new ResizeObserver(scheduleCommentLayout)
   if (paperRef.value) resizeObserver.observe(paperRef.value)
@@ -1521,7 +1784,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('click', handleDocumentClick)
   window.removeEventListener('resize', scheduleCommentLayout)
-  window.removeEventListener('beforeunload', handleBeforeUnload)
+  window.removeEventListener('pagehide', handlePageHide)
   appStore.setLogoutGuard(null)
   resizeObserver?.disconnect()
   if (layoutFrame) cancelAnimationFrame(layoutFrame)
@@ -1530,7 +1793,9 @@ onBeforeUnmount(() => {
   cancelPopoverClose()
   if (copyResetTimer) clearTimeout(copyResetTimer)
   if (debounceTimer) clearTimeout(debounceTimer)
+  if (qualityDebounceTimer) clearTimeout(qualityDebounceTimer)
   if (activeController) activeController.abort()
+  if (activeQualityController) activeQualityController.abort()
   if (decision.resolve) finishDecision(false)
   if (editor.value) {
     editor.value.destroy()
@@ -1541,6 +1806,7 @@ onBeforeUnmount(() => {
 <style>
 /* Document & Typography Styling */
 .editor-container {
+  --editor-sticky-bar-space: 70px;
   position: relative;
   width: 100%;
   max-width: 1320px;
@@ -1548,14 +1814,15 @@ onBeforeUnmount(() => {
 }
 
 .editor-action-bar {
-  position: relative;
-  z-index: 30;
+  position: sticky;
+  top: calc(var(--app-header-height, 75px) + 10px);
+  z-index: 90;
   display: grid;
   grid-template-columns: minmax(250px, 1fr) minmax(0, auto) minmax(220px, 1fr);
   align-items: center;
   margin-bottom: 16px;
   padding: 10px 18px;
-  background: #ffffff;
+  background: var(--surface);
   border-radius: 12px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   gap: 12px;
@@ -1614,6 +1881,10 @@ onBeforeUnmount(() => {
 .save-button:disabled { opacity: .55; cursor: not-allowed; }
 
 .check-again-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   height: 34px;
   box-sizing: border-box;
   border: 1px solid #c7d2fe;
@@ -1625,6 +1896,11 @@ onBeforeUnmount(() => {
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
+}
+
+.check-again-button svg {
+  width: 16px;
+  height: 16px;
 }
 
 .check-again-button:hover:not(:disabled) {
@@ -1655,6 +1931,8 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
+.more-button__icon { display: none; width: 18px; height: 18px; }
+
 .toolbar-popover {
   position: absolute;
   top: calc(100% + 8px);
@@ -1663,7 +1941,7 @@ onBeforeUnmount(() => {
   padding: 6px;
   border: 1px solid #ded5f1;
   border-radius: 13px;
-  background: rgba(255, 255, 255, 0.98);
+  background: var(--surface);
   box-shadow: 0 16px 38px rgba(48, 31, 82, 0.18), 0 3px 10px rgba(48, 31, 82, 0.08);
   color: var(--text-h);
 }
@@ -1798,6 +2076,36 @@ onBeforeUnmount(() => {
 
 .copy-button--success { color: #047857; }
 .copy-button--error { color: #b91c1c; }
+
+.grammar-issues-button {
+  position: relative;
+  display: none;
+  flex: 0 0 34px;
+}
+
+.grammar-issues-button svg {
+  width: 17px;
+  height: 17px;
+}
+
+.grammar-issues-button.has-issues { color: #6d28d9; }
+
+.grammar-issues-count {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 16px;
+  height: 16px;
+  box-sizing: border-box;
+  padding: 0 4px;
+  border: 2px solid var(--surface);
+  border-radius: 999px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 12px;
+}
 
 .visually-hidden {
   position: absolute;
@@ -1941,7 +2249,11 @@ onBeforeUnmount(() => {
 .dialog-button { min-height: 38px; padding: 0 13px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text-h); font-family: inherit; font-weight: 700; cursor: pointer; }
 .dialog-button--primary { border-color: #6d28d9; background: #6d28d9; color: #fff; }
 .dialog-button--danger { border-color: #fecaca; color: #b91c1c; }
+.dialog-button--danger-solid { border-color: #b91c1c; background: #b91c1c; color: #fff; }
+.dialog-button--danger-solid:hover:not(:disabled) { border-color: #991b1b; background: #991b1b; }
+.dialog-button:disabled { opacity: .58; cursor: wait; }
 .dialog-button--quiet { color: var(--text); }
+.dialog-error { margin: -10px 0 18px !important; color: #b91c1c !important; font-size: 13px !important; }
 
 .title-form { display: grid; gap: 10px; }
 .title-form label { color: var(--text-h); font-size: 12px; font-weight: 800; }
@@ -1998,9 +2310,11 @@ onBeforeUnmount(() => {
 
 .editor-paper {
   position: relative;
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-width: 0;
-  background: #ffffff;
+  background: var(--surface);
   border-radius: 16px;
   box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05), 0 2px 6px -1px rgba(0, 0, 0, 0.03);
   padding: 0;
@@ -2009,7 +2323,7 @@ onBeforeUnmount(() => {
   text-align: left;
 }
 
-.editor-paper:has(.comment-rail) .tiptap-content {
+.editor-paper:has(.comment-rail) .ProseMirror {
   padding-right: 260px;
 }
 
@@ -2017,6 +2331,10 @@ onBeforeUnmount(() => {
   background: rgba(250, 204, 21, 0.25);
   box-shadow: inset 0 -2px #eab308;
   border-radius: 2px;
+}
+
+.comment-marker {
+  display: none;
 }
 
 .comment-bubble {
@@ -2046,7 +2364,7 @@ onBeforeUnmount(() => {
   padding: 12px;
   border: 1px solid #ded7e9;
   border-radius: 12px;
-  background: #fff;
+  background: var(--surface);
   box-shadow: 0 12px 30px rgba(42, 25, 65, 0.2);
   text-align: left;
 }
@@ -2069,7 +2387,7 @@ onBeforeUnmount(() => {
   font: inherit;
   font-size: 13px;
   color: #1f2937;
-  background: #fff;
+  background: var(--bg);
 }
 
 .comment-composer-actions, .comment-card-actions {
@@ -2084,7 +2402,7 @@ onBeforeUnmount(() => {
   border-radius: 6px;
   padding: 5px 9px;
   color: #5b21b6;
-  background: #fff;
+  background: var(--surface);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -2113,7 +2431,7 @@ onBeforeUnmount(() => {
   padding: 11px 12px;
   border: 1px solid #eadcf0;
   border-radius: 10px;
-  background: #fffaf6;
+  background: var(--surface);
   box-shadow: 0 5px 16px rgba(70, 43, 80, 0.12);
   text-align: left;
   overflow-wrap: anywhere;
@@ -2167,6 +2485,99 @@ onBeforeUnmount(() => {
   margin: 0 10px 10px 0;
 }
 
+.comment-reader-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 240;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  padding: 18px;
+  background: rgba(15, 11, 24, .58);
+  backdrop-filter: blur(5px);
+}
+
+.comment-reader-dialog {
+  width: min(420px, 100%);
+  max-height: min(78dvh, 620px);
+  box-sizing: border-box;
+  overflow-y: auto;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface);
+  color: var(--text-h);
+  box-shadow: 0 24px 60px rgba(25, 18, 42, .32);
+}
+
+.comment-reader-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.comment-reader-header h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.comment-reader-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text);
+  font-size: 25px;
+  cursor: pointer;
+}
+
+.comment-reader-close:hover { background: var(--accent-bg); color: var(--brand-color); }
+
+.comment-reader-dialog blockquote {
+  margin: 18px 0 14px;
+  padding: 10px 12px;
+  border-left: 3px solid #8b5cf6;
+  border-radius: 0 9px 9px 0;
+  background: var(--accent-bg);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.comment-reader-note {
+  margin: 0 0 12px;
+  color: var(--text-h);
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.comment-reader-dialog time { color: var(--text); font-size: 11px; }
+
+.comment-reader-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.comment-reader-enter-active,
+.comment-reader-leave-active { transition: opacity 180ms ease; }
+.comment-reader-enter-active .comment-reader-dialog,
+.comment-reader-leave-active .comment-reader-dialog { transition: transform 220ms cubic-bezier(.22, 1, .36, 1), opacity 180ms ease; }
+.comment-reader-enter-from,
+.comment-reader-leave-to { opacity: 0; }
+.comment-reader-enter-from .comment-reader-dialog,
+.comment-reader-leave-to .comment-reader-dialog { opacity: 0; transform: translateY(12px) scale(.98); }
+
 :root[data-theme='dark'] .comment-card,
 :root[data-theme='dark'] .comment-composer {
   background: #302b3b;
@@ -2188,6 +2599,20 @@ onBeforeUnmount(() => {
   background: rgba(250, 204, 21, 0.18);
 }
 
+:root[data-theme='dark'] .comment-marker {
+  border-color: #6d5e91;
+  background: #38305a;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .28);
+  color: #ddd6fe;
+}
+
+:root[data-theme='dark'] .comment-marker:hover,
+:root[data-theme='dark'] .comment-marker:focus-visible {
+  border-color: #8b7ab8;
+  background: #493d70;
+  color: #f5f3ff;
+}
+
 .issues-sidebar {
   display: flex;
   flex-direction: column;
@@ -2196,13 +2621,22 @@ onBeforeUnmount(() => {
   max-height: calc(100vh - 130px);
   overflow: hidden;
   box-sizing: border-box;
-  padding: 18px;
+  padding: 20px 18px;
   border-radius: 16px;
-  background: #fff;
+  background: var(--surface);
   box-shadow: 0 4px 20px rgba(56, 34, 77, 0.09);
   text-align: left;
   position: sticky;
-  top: 16px;
+  top: calc(var(--app-header-height, 75px) + var(--editor-sticky-bar-space));
+}
+
+.issues-overlay,
+.issues-drawer-close {
+  display: none;
+}
+
+.issues-drawer-topbar {
+  display: none;
 }
 
 .sidebar-header {
@@ -2267,7 +2701,7 @@ onBeforeUnmount(() => {
   border: 1px solid #e9e5ef;
   border-radius: 10px;
   padding: 14px;
-  background: #fff;
+  background: var(--surface);
 }
 
 .issue-card-category {
@@ -2318,13 +2752,116 @@ onBeforeUnmount(() => {
 
 .card-ignore {
   border: 1px solid #e2e8f0;
-  background: #fff;
+  background: var(--surface);
   color: #475569;
+}
+
+.quality-card {
+  --quality-ring: #7c3aed;
+  --quality-ring-track: #e7dcf5;
+  --quality-inner: #fffaf2;
+  --quality-label: #5f5669;
+  --quality-track: #ded7e7;
+  --quality-grammar: #8b5cf6;
+  --quality-clarity: #5278b8;
+  --quality-coherence: #d97745;
+  --quality-vocabulary: #bd5f8d;
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 14px;
+  flex: 0 0 auto;
+  width: 100%;
+  aspect-ratio: 1;
+  box-sizing: border-box;
+  margin-bottom: 16px;
+  padding: 18px;
+  overflow: hidden;
+  border: 1px solid #dfd2ef;
+  border-radius: 14px;
+  background: linear-gradient(145deg, #fcf8ff, #f3ebfa);
+}
+
+.quality-chart {
+  --quality-score: 0;
+  position: relative;
+  align-self: center;
+  justify-self: center;
+  width: 112px;
+  height: 112px;
+  border-radius: 50%;
+  background: conic-gradient(var(--quality-ring) calc(var(--quality-score) * 1%), var(--quality-ring-track) 0);
+}
+
+.quality-chart::after {
+  content: '';
+  position: absolute;
+  inset: 12px;
+  border-radius: 50%;
+  background: var(--quality-inner);
+}
+
+.quality-chart__center {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  align-content: center;
+  flex-wrap: wrap;
+  color: var(--quality-ring);
+}
+
+.quality-chart__center strong { font-size: 36px; line-height: 1; }
+.quality-chart__center span { font-size: 12px; font-weight: 700; }
+.quality-bars { display: grid; gap: 9px; }
+.quality-bar-row > div:first-child { display: flex; justify-content: space-between; color: var(--quality-label); font-size: 11px; font-weight: 700; }
+.quality-bar-row--grammar { --quality-bar-color: var(--quality-grammar); }
+.quality-bar-row--clarity { --quality-bar-color: var(--quality-clarity); }
+.quality-bar-row--coherence { --quality-bar-color: var(--quality-coherence); }
+.quality-bar-row--vocabulary { --quality-bar-color: var(--quality-vocabulary); }
+.quality-bar-row strong { color: var(--quality-bar-color); }
+.quality-meter { height: 5px; margin-top: 7px; overflow: hidden; border-radius: 999px; background: var(--quality-track); }
+.quality-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--quality-bar-color);
+  transition: width 720ms cubic-bezier(.22, 1, .36, 1);
+}
+
+:root[data-theme='dark'] .quality-card {
+  --quality-ring: #c4b5fd;
+  --quality-ring-track: #4a405b;
+  --quality-inner: #292733;
+  --quality-label: #c9c3d2;
+  --quality-track: #454151;
+  --quality-grammar: #c4b5fd;
+  --quality-clarity: #82b8e8;
+  --quality-coherence: #f0a06f;
+  --quality-vocabulary: #e694bb;
+  border-color: #4b425c;
+  background: linear-gradient(145deg, #302a3c, #292631);
+}
+
+@media (max-width: 700px) {
+  .quality-card { gap: 10px; padding: 18px 16px; }
+  .quality-chart { width: 96px; height: 96px; }
+  .quality-chart::after { inset: 10px; }
+  .quality-chart__center strong { font-size: 32px; }
+  .quality-bars { gap: 6px; }
+  .quality-meter { margin-top: 4px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quality-meter span { transition: none; }
 }
 
 @media (max-width: 900px) {
   .editor-workspace {
     flex-direction: column;
+    gap: 14px;
   }
   .editor-paper, .issues-sidebar {
     width: 100%;
@@ -2337,6 +2874,7 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 1200px) {
+  .editor-container { --editor-sticky-bar-space: 112px; }
   .editor-action-bar {
     grid-template-columns: minmax(0, 1fr) auto;
   }
@@ -2371,7 +2909,7 @@ onBeforeUnmount(() => {
     padding: 7px;
     border: 1px solid #ded5f1;
     border-radius: 13px;
-    background: rgba(255, 255, 255, 0.98);
+    background: var(--surface);
     box-shadow: 0 16px 38px rgba(48, 31, 82, 0.18), 0 3px 10px rgba(48, 31, 82, 0.08);
   }
   .toolbar-extra-controls > .toolbar-divider {
@@ -2381,59 +2919,235 @@ onBeforeUnmount(() => {
 
 @media (max-width: 600px) {
   .editor-action-bar {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 9px;
+    margin-bottom: 10px;
+    padding: 10px;
   }
   .doc-status {
     grid-column: 1;
     grid-row: 1;
+    min-width: 0;
+    width: 100%;
   }
+  .grammar-status { flex: 1; overflow: hidden; }
+  .status-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .editor-actions {
-    grid-column: 1;
-    grid-row: 2;
-    justify-self: start;
+    grid-column: 2;
+    grid-row: 1;
+    display: flex;
+    justify-self: end;
+    gap: 6px;
+    width: auto;
   }
+  .save-button, .check-again-button { flex: 0 0 32px; justify-content: center; width: 32px; height: 32px; padding: 0; }
+  .save-button__label, .check-again-button__label, .more-button__label { display: none; }
+  .more-button { justify-content: center; width: 34px; padding: 0; }
+  .more-button__icon { display: block; }
+  .format-toolbar > .toolbar-divider { display: none; }
+  .copy-button { order: 10; }
+  .toolbar-extras { order: 11; }
   .format-toolbar {
-    grid-column: 1;
-    grid-row: 3;
+    grid-column: 1 / -1;
+    grid-row: 2;
     justify-content: flex-start;
+    width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex-wrap: nowrap;
+    box-sizing: border-box;
+    padding: 2px 0 6px;
+    scrollbar-width: thin;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  .toolbar-extras.is-open .toolbar-extra-controls {
+    position: fixed;
+    top: auto;
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    max-width: none;
     flex-wrap: wrap;
+    justify-content: center;
   }
   .document-heading { flex-wrap: wrap; }
   .decision-actions { align-items: stretch; flex-direction: column-reverse; }
   .dialog-button { width: 100%; }
-  .editor-paper .tiptap-content {
-    padding: 28px 22px;
+  .editor-paper .tiptap-content .ProseMirror {
+    padding: 16px 14px 28px;
   }
 }
 
 @media (max-width: 700px) {
-  .editor-paper {
-    min-height: 80vh;
+  .documents-drawer {
+    top: var(--app-header-height, 54px);
+    height: calc(100% - var(--app-header-height, 54px));
   }
-  .editor-paper:has(.comment-rail) .tiptap-content {
-    padding-right: 22px;
+  .grammar-issues-button {
+    display: inline-flex;
+  }
+  .issues-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 140;
+    display: block;
+    background: rgba(15, 11, 24, .48);
+    backdrop-filter: blur(3px);
+  }
+  .issues-overlay-enter-active,
+  .issues-overlay-leave-active {
+    transition: background-color 220ms ease, backdrop-filter 220ms ease;
+  }
+  .issues-overlay-enter-from,
+  .issues-overlay-leave-to {
+    background-color: rgba(15, 11, 24, 0);
+    backdrop-filter: blur(0);
+  }
+  .issues-sidebar {
+    position: fixed;
+    top: var(--app-header-height, 54px);
+    left: 0;
+    z-index: 141;
+    width: min(360px, 88vw);
+    height: calc(100dvh - var(--app-header-height, 54px));
+    max-height: none;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 18px;
+    border-radius: 0 18px 18px 0;
+    box-shadow: 18px 0 50px rgba(25, 18, 42, .24);
+    pointer-events: none;
+    opacity: .92;
+    transform: translateX(-100%);
+    transition: transform 280ms cubic-bezier(.22, 1, .36, 1), opacity 220ms ease;
+    will-change: transform, opacity;
+  }
+  .issues-sidebar.is-open {
+    pointer-events: auto;
+    opacity: 1;
+    transform: translateX(0);
+  }
+  .issues-drawer-topbar {
+    position: sticky;
+    top: -14px;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex: 0 0 auto;
+    margin: -14px -14px 14px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-h);
+  }
+  .issues-drawer-topbar strong {
+    font-size: 14px;
+    font-weight: 800;
+  }
+  .issues-drawer-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--surface);
+    color: var(--text-h);
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .editor-paper {
+    min-height: 100dvh;
+  }
+  .editor-paper .tiptap-content { min-height: 100dvh; }
+  .issues-sidebar { max-height: none; padding: 14px; }
+  .issues-sidebar .quality-card {
+    display: grid;
+    flex: 0 0 auto;
+    width: 100%;
+  }
+  .issue-cards { overflow: visible; padding-right: 0; }
+  .editor-paper:has(.comment-rail) .ProseMirror {
+    padding-right: 14px;
   }
   .comment-rail {
-    position: static;
-    width: auto;
-    height: auto !important;
-    padding: 0 18px 18px;
-    display: grid;
-    gap: 10px;
+    display: none;
   }
-  .comment-rail .comment-card {
-    position: static;
+  .comment-marker {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 25px;
+    height: 25px;
+    margin: 0 3px;
+    padding: 0;
+    border: 1px solid #c4b5fd;
+    border-radius: 999px;
+    background: #ede9fe;
+    color: #6d28d9;
+    vertical-align: middle;
+    transform: translateY(-10px);
+    cursor: pointer;
+  }
+  .comment-marker svg {
+    width: 14px;
+    height: 14px;
   }
   .comment-composer {
-    max-width: calc(100% - 24px);
+    position: fixed;
+    top: 50% !important;
+    left: 50% !important;
+    z-index: 241;
+    width: min(320px, calc(100vw - 24px));
+    max-width: none;
+    transform: translate(-50%, -50%);
   }
 }
 
+@media (max-width: 700px) and (prefers-reduced-motion: reduce) {
+  .issues-sidebar,
+  .issues-overlay-enter-active,
+  .issues-overlay-leave-active,
+  .comment-reader-enter-active,
+  .comment-reader-leave-active,
+  .comment-reader-enter-active .comment-reader-dialog,
+  .comment-reader-leave-active .comment-reader-dialog { transition-duration: 1ms; }
+}
+
 .tiptap-content {
+  display: flex;
+  flex: 1;
+  min-height: max(80vh, var(--comment-rail-height));
+  box-sizing: border-box;
   color: #1f2937;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   line-height: 1.75;
+}
+
+.tiptap-content .ProseMirror {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
   padding: 36px 56px 48px;
+  cursor: text;
+}
+
+.tiptap-content .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+:root[data-theme='dark'] .tiptap-content .ProseMirror p.is-editor-empty:first-child::before {
+  color: #7f8799;
 }
 
 .tiptap-content h1 {

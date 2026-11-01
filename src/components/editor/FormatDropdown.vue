@@ -23,14 +23,16 @@
       </svg>
     </button>
 
-    <Transition name="format-dropdown-menu">
-      <div
-        v-if="open"
-        :id="menuId"
-        class="format-dropdown__menu"
-        role="listbox"
-        :aria-label="label"
-      >
+    <Teleport to="body">
+      <Transition name="format-dropdown-menu">
+        <div
+          v-if="open"
+          :id="menuId"
+          class="format-dropdown__menu"
+          :style="menuStyle"
+          role="listbox"
+          :aria-label="label"
+        >
         <button
           v-for="(option, index) in options"
           :key="String(option.value)"
@@ -56,13 +58,14 @@
             <path d="m5 10 3.1 3.1L15 6.8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </button>
-      </div>
-    </Transition>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 
 const props = defineProps({
   id: { type: String, required: true },
@@ -79,6 +82,7 @@ const emit = defineEmits(['toggle', 'select', 'close'])
 const triggerRef = ref(null)
 const optionRefs = ref([])
 const activeIndex = ref(0)
+const menuStyle = ref({})
 const menuId = computed(() => `${props.id}-listbox`)
 const selectedIndex = computed(() => props.options.findIndex(option => option.value === props.modelValue))
 const displayLabel = computed(() => {
@@ -86,12 +90,51 @@ const displayLabel = computed(() => {
   return props.options.find(option => option.value === props.modelValue)?.label || props.placeholder
 })
 
-watch(() => props.open, isOpen => {
+watch(() => props.open, async isOpen => {
   if (isOpen) {
     optionRefs.value = []
     activeIndex.value = selectedIndex.value >= 0 ? selectedIndex.value : 0
+    await nextTick()
+    updateMenuPosition()
+    window.addEventListener('resize', updateMenuPosition)
+    window.addEventListener('scroll', updateMenuPosition, true)
+  } else {
+    stopTrackingMenu()
   }
 })
+
+onBeforeUnmount(stopTrackingMenu)
+
+function updateMenuPosition() {
+  const trigger = triggerRef.value
+  if (!trigger) return
+
+  const rect = trigger.getBoundingClientRect()
+  const viewportPadding = 12
+  const menuWidth = Math.min(
+    Math.max(rect.width, props.previewFont ? 200 : 170),
+    window.innerWidth - viewportPadding * 2
+  )
+  const left = Math.min(
+    Math.max(viewportPadding, rect.left),
+    window.innerWidth - menuWidth - viewportPadding
+  )
+  const spaceBelow = window.innerHeight - rect.bottom - viewportPadding
+  const openBelow = spaceBelow >= 180 || spaceBelow >= rect.top
+
+  menuStyle.value = {
+    position: 'fixed',
+    left: `${left}px`,
+    width: `${menuWidth}px`,
+    top: openBelow ? `${rect.bottom + 8}px` : 'auto',
+    bottom: openBelow ? 'auto' : `${window.innerHeight - rect.top + 8}px`
+  }
+}
+
+function stopTrackingMenu() {
+  window.removeEventListener('resize', updateMenuPosition)
+  window.removeEventListener('scroll', updateMenuPosition, true)
+}
 
 function setOptionRef(element, index) {
   if (element) optionRefs.value[index] = element
@@ -163,7 +206,7 @@ function selectOption(value) {
   padding: 0 9px 0 11px;
   border: 1px solid #e4e0ee;
   border-radius: 11px;
-  background: linear-gradient(180deg, #ffffff 0%, #fbfaff 100%);
+  background: linear-gradient(180deg, var(--surface) 0%, var(--bg) 100%);
   box-shadow: 0 1px 2px rgba(54, 38, 86, 0.04);
   color: #334155;
   font-family: inherit;
@@ -210,12 +253,7 @@ function selectOption(value) {
 }
 
 .format-dropdown__menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  z-index: 60;
-  width: max-content;
-  min-width: 100%;
+  z-index: 180;
   max-width: calc(100vw - 24px);
   max-height: min(320px, calc(100vh - 96px));
   box-sizing: border-box;
@@ -224,7 +262,7 @@ function selectOption(value) {
   padding: 6px;
   border: 1px solid #ded5f1;
   border-radius: 13px;
-  background: rgba(255, 255, 255, 0.98);
+  background: var(--surface);
   box-shadow: 0 16px 38px rgba(48, 31, 82, 0.18), 0 3px 10px rgba(48, 31, 82, 0.08);
   color: #334155;
 }
@@ -323,16 +361,4 @@ function selectOption(value) {
   color: #ede9fe;
 }
 
-@media (max-width: 420px) {
-  .format-dropdown__menu {
-    position: fixed;
-    top: auto;
-    right: 12px;
-    bottom: 12px;
-    left: 12px;
-    width: auto;
-    max-width: none;
-    transform-origin: bottom center;
-  }
-}
 </style>

@@ -14,7 +14,6 @@
         <span class="dot"></span>
         <span class="category-text">{{ issue.category }}</span>
       </div>
-      <span class="shortcut-tip">{{ issue.shortcut || 'Press [Tab]' }}</span>
     </div>
 
     <!-- Original vs Candidate Suggestions -->
@@ -59,10 +58,6 @@
       </button>
       <button type="button" class="btn-ignore" @click.stop="emit('ignore', issue)">
         Ignore
-      </button>
-      <div class="action-spacer"></div>
-      <button type="button" class="btn-more" title="More options">
-        &bull;&bull;&bull;
       </button>
     </div>
   </div>
@@ -165,8 +160,9 @@ const floatingStyles = computed(() => {
 .suggestion-popover {
   position: absolute;
   z-index: 100;
-  width: 360px;
-  background: #ffffff;
+  width: min(360px, calc(100vw - 24px));
+  box-sizing: border-box;
+  background: var(--surface);
   border-radius: 12px;
   padding: 16px;
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.12), 0 8px 10px -6px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.05);
@@ -179,7 +175,6 @@ const floatingStyles = computed(() => {
 .popover-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   margin-bottom: 12px;
 }
 
@@ -218,12 +213,6 @@ const floatingStyles = computed(() => {
 }
 .badge--engagement .dot {
   background-color: #8b5cf6;
-}
-
-.shortcut-tip {
-  font-size: 11px;
-  color: #9ca3af;
-  font-weight: 500;
 }
 
 .options-container {
@@ -357,21 +346,4 @@ const floatingStyles = computed(() => {
   color: #111827;
 }
 
-.action-spacer {
-  flex: 1;
-}
-
-.btn-more {
-  background: transparent;
-  border: none;
-  color: #9ca3af;
-  cursor: pointer;
-  padding: 4px;
-  font-size: 12px;
-  letter-spacing: -1px;
-}
-
-.btn-more:hover {
-  color: #4b5563;
-}
 </style>

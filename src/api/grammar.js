@@ -21,6 +21,21 @@ export const grammarApi = {
   },
 
   /**
+   * Assess the overall quality of a general English text.
+   * @param {string} text - Raw text to assess
+   * @param {string} language - Target language
+   * @param {AbortSignal} [signal] - Cancels an obsolete request
+   */
+  assessQuality(text, language = 'en-US', signal) {
+    return apiClient.post('/assess/', {
+      text,
+      language
+    }, {
+      signal
+    })
+  },
+
+  /**
    * Health check
    */
   checkHealth() {

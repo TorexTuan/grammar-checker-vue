@@ -14,7 +14,7 @@ import TextEditor from '../components/editor/TextEditor.vue'
   display: flex;
   justify-content: center;
   padding: 24px 16px;
-  background: linear-gradient(120deg, #fff2e7 0%, #f9eef6 48%, #f0ebff 100%);
+  background: var(--page-bg-gradient);
   min-height: calc(100vh - 80px);
 }
 
@@ -34,5 +34,12 @@ import TextEditor from '../components/editor/TextEditor.vue'
 .editor-view > * {
   position: relative;
   z-index: 1;
+}
+
+@media (max-width: 700px) {
+  .editor-view {
+    min-height: calc(100svh - 54px);
+    padding: 10px 8px 18px;
+  }
 }
 </style>

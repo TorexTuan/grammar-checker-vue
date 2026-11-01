@@ -3,7 +3,7 @@
     <div v-if="store.authOpen" class="auth-overlay" @mousedown.self="store.closeAuth()">
       <section class="auth-modal" role="dialog" aria-modal="true" :aria-labelledby="titleId" @keydown.esc="store.closeAuth()">
         <button type="button" class="auth-close" aria-label="Close" :disabled="store.loading" @click="store.closeAuth()">&times;</button>
-        <p class="auth-eyebrow">Grammar Checker</p>
+        <p class="auth-eyebrow">Ý Grammar Checker</p>
         <h2 :id="titleId">{{ isRegister ? 'Create your account' : 'Welcome back' }}</h2>
         <p class="auth-intro">
           {{ isRegister ? 'Save and access your formatted documents from your account.' : 'Sign in to save this document to your account.' }}
@@ -35,7 +35,7 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useAppStore } from '../../stores/app'
 
 const store = useAppStore()
@@ -43,6 +43,13 @@ const email = ref('')
 const password = ref('')
 const isRegister = computed(() => store.authMode === 'register')
 const titleId = 'account-dialog-title'
+
+watch(() => store.authOpen, isOpen => {
+  if (!isOpen) {
+    email.value = ''
+    password.value = ''
+  }
+})
 
 function switchMode() {
   store.authMode = isRegister.value ? 'login' : 'register'
@@ -62,7 +69,7 @@ async function submit() {
 .auth-overlay {
   position: fixed;
   inset: 0;
-  z-index: 200;
+  z-index: 300;
   display: grid;
   place-items: center;
   box-sizing: border-box;

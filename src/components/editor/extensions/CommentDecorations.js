@@ -4,6 +4,31 @@ import { Decoration, DecorationSet } from '@tiptap/pm/view'
 
 export const COMMENT_REFRESH_META = 'refreshComments'
 
+function createCommentMarker(commentId) {
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'comment-marker'
+  button.setAttribute('data-comment-id', commentId)
+  button.setAttribute('aria-label', 'Open comment')
+  button.setAttribute('title', 'Open comment')
+  button.setAttribute('contenteditable', 'false')
+
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('viewBox', '0 0 24 24')
+  svg.setAttribute('fill', 'none')
+  svg.setAttribute('stroke', 'currentColor')
+  svg.setAttribute('stroke-width', '2')
+  svg.setAttribute('stroke-linecap', 'round')
+  svg.setAttribute('stroke-linejoin', 'round')
+  svg.setAttribute('aria-hidden', 'true')
+
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+  path.setAttribute('d', 'M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z')
+  svg.appendChild(path)
+  button.appendChild(svg)
+  return button
+}
+
 export function createCommentDecorations(getComments) {
   return Extension.create({
     name: 'commentDecorations',
@@ -27,6 +52,10 @@ export function createCommentDecorations(getComments) {
                   }))
                 }
               })
+              decorations.push(Decoration.widget(comment.to, () => createCommentMarker(comment.id), {
+                side: 1,
+                key: `comment-marker-${comment.id}`
+              }))
             }
             return DecorationSet.create(state.doc, decorations)
           }
