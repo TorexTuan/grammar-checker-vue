@@ -146,6 +146,8 @@
         <editor-content :editor="editor" class="tiptap-content" />
         <bubble-menu v-if="editor" :editor="editor" :should-show="shouldShowCommentMenu" :options="{ placement: 'top' }" class="comment-bubble">
           <button type="button" @mousedown.prevent @click="openCommentComposer">Add comment</button>
+          <span class="comment-bubble-divider" aria-hidden="true"></span>
+          <button type="button" @mousedown.prevent @click="openProfessionalRewrite">Professional rewrite</button>
         </bubble-menu>
         <div v-if="composer.visible" class="comment-composer" :style="composerStyle">
           <label for="comment-note">{{ composer.editingId ? 'Edit comment' : 'New comment' }}</label>
@@ -155,20 +157,58 @@
             <button type="button" :disabled="!composer.note.trim()" @click="saveComment">Save</button>
           </div>
         </div>
+        <section
+          v-if="rewrite.visible"
+          class="rewrite-popover"
+          :style="rewriteStyle"
+          role="dialog"
+          aria-labelledby="rewrite-title"
+          :aria-busy="rewrite.status === 'loading'"
+          @keydown.esc.stop.prevent="closeProfessionalRewrite"
+        >
+          <div class="rewrite-header">
+            <div>
+              <span>AI rewrite</span>
+              <h3 id="rewrite-title">Professional tone</h3>
+            </div>
+            <button type="button" class="rewrite-close" aria-label="Close professional rewrite" @click="closeProfessionalRewrite">&times;</button>
+          </div>
+          <div v-if="rewrite.status === 'loading'" class="rewrite-message" role="status">
+            <span class="rewrite-spinner" aria-hidden="true"></span>
+            Creating professional alternatives…
+          </div>
+          <div v-else-if="rewrite.status === 'error' || rewrite.status === 'stale'" class="rewrite-message rewrite-message--error" role="alert">
+            <p>{{ rewrite.error }}</p>
+            <button v-if="rewrite.status === 'error'" type="button" @click="requestProfessionalRewrite">Retry</button>
+          </div>
+          <p v-else-if="rewrite.status === 'empty'" class="rewrite-message" role="status">No alternative was returned for this selection.</p>
+          <div v-else class="rewrite-results" role="radiogroup" aria-label="Professional rewrite options">
+            <button
+              v-for="result in rewrite.results"
+              :key="result.id"
+              type="button"
+              class="rewrite-result"
+              :class="{ 'is-selected': rewrite.selectedId === result.id }"
+              role="radio"
+              :aria-checked="rewrite.selectedId === result.id"
+              @click="rewrite.selectedId = result.id"
+            >
+              <span class="rewrite-radio" aria-hidden="true"></span>
+              <span>{{ result.text }}</span>
+            </button>
+          </div>
+          <div class="rewrite-actions">
+            <button type="button" class="rewrite-cancel" @click="closeProfessionalRewrite">Cancel</button>
+            <button
+              type="button"
+              class="rewrite-replace"
+              :disabled="rewrite.status !== 'success' || !rewrite.selectedId"
+              @click="applyProfessionalRewrite"
+            >Replace</button>
+          </div>
+        </section>
         <div v-if="linkedComments.length" class="comment-rail" :style="{ height: `${commentRailHeight}px` }" aria-label="Comments">
           <article v-for="comment in linkedComments" :key="comment.id" :ref="el => setCommentCardRef(comment.id, el)" class="comment-card" :style="{ top: `${cardTops[comment.id] ?? 0}px` }">
-            <blockquote>{{ comment.quote }}</blockquote>
-            <p>{{ comment.note }}</p>
-            <time :datetime="comment.createdAt">{{ formatCommentTime(comment.createdAt) }}</time>
-            <div class="comment-card-actions">
-              <button type="button" @click="editComment(comment)">Edit</button>
-              <button type="button" @click="deleteComment(comment.id)">Delete</button>
-            </div>
-          </article>
-        </div>
-        <div v-if="unlinkedComments.length" class="unlinked-comments">
-          <h3>Unlinked comments</h3>
-          <article v-for="comment in unlinkedComments" :key="comment.id" class="comment-card comment-card--unlinked">
             <blockquote>{{ comment.quote }}</blockquote>
             <p>{{ comment.note }}</p>
             <time :datetime="comment.createdAt">{{ formatCommentTime(comment.createdAt) }}</time>
@@ -341,6 +381,7 @@ import Placeholder from '@tiptap/extension-placeholder'
 import { TextStyle, FontSize, FontFamily, Color, BackgroundColor } from '@tiptap/extension-text-style'
 import TextAlign from '@tiptap/extension-text-align'
 import { GrammarIssueMark } from './extensions/GrammarIssueMark'
+import { AutocompleteGhost } from './extensions/AutocompleteGhost'
 import { createCommentDecorations, COMMENT_REFRESH_META } from './extensions/CommentDecorations'
 import FormatDropdown from './FormatDropdown.vue'
 import SuggestionPopover from './SuggestionPopover.vue'
@@ -363,10 +404,22 @@ const activeCommentId = ref(null)
 const activeComment = computed(() => comments.value.find(comment => comment.id === activeCommentId.value) || null)
 const cardTops = ref({})
 const commentRailHeight = ref(0)
-const linkedComments = computed(() => comments.value.filter(comment => !comment.unlinked).sort((a, b) => a.from - b.from))
-const unlinkedComments = computed(() => comments.value.filter(comment => comment.unlinked))
+const linkedComments = computed(() => [...comments.value].sort((a, b) => a.from - b.from))
 const composer = reactive({ visible: false, editingId: null, from: 0, to: 0, quote: '', note: '', x: 12, y: 12 })
 const composerStyle = computed(() => ({ left: `${composer.x}px`, top: `${composer.y}px` }))
+const rewrite = reactive({
+  visible: false,
+  status: 'idle',
+  from: 0,
+  to: 0,
+  original: '',
+  results: [],
+  selectedId: null,
+  error: '',
+  x: 12,
+  y: 12
+})
+const rewriteStyle = computed(() => ({ left: `${rewrite.x}px`, top: `${rewrite.y}px` }))
 const LEGACY_STORAGE_KEY = 'grammar-checker-document-v1'
 const GUEST_DRAFT_KEY = 'grammar-checker-draft:guest'
 const LEGACY_SAMPLE_HEADING = 'The Societal and Economic Implications of Autonomous AI Systems'
@@ -424,6 +477,7 @@ const qualityCriteria = computed(() => {
 })
 const FONT_SIZES = [12, 14, 16, 18, 20, 24, 32]
 const FONT_FAMILIES = [
+  { label: 'Inter', value: 'Inter' },
   { label: 'Arial', value: 'Arial' },
   { label: 'Georgia', value: 'Georgia' },
   { label: 'Times New Roman', value: 'Times New Roman' },
@@ -437,13 +491,14 @@ const BLOCK_STYLES = [
   { label: 'Heading 3', value: 'heading3' }
 ]
 const FONT_SIZE_OPTIONS = [
-  { label: 'Default size', value: '' },
   ...FONT_SIZES.map(size => ({ label: `${size} px`, value: `${size}px` }))
 ]
 const FONT_FAMILY_OPTIONS = [
-  { label: 'Default font', value: '' },
   ...FONT_FAMILIES
 ]
+const DESKTOP_DEFAULT_FONT_SIZE = '18px'
+const COMPACT_DEFAULT_FONT_SIZE = '16px'
+const DEFAULT_FONT_FAMILY = 'Inter'
 const DEFAULT_TEXT_COLOR = '#334155'
 const DEFAULT_HIGHLIGHT_COLOR = '#fff2a8'
 const ALIGNMENTS = [
@@ -458,18 +513,31 @@ const ALIGNMENT_LINES = {
   right: [[3, 18], [9, 12], [3, 18], [9, 12]],
   justify: [[3, 18], [3, 18], [3, 18], [3, 18]]
 }
-const toolbarState = reactive({ block: 'paragraph', fontSize: '', fontFamily: '', color: '', backgroundColor: '', align: 'left', bold: false, italic: false, underline: false })
+const compactEditor = ref(window.innerWidth <= 1024)
+const toolbarState = reactive({ block: 'paragraph', fontSize: compactEditor.value ? COMPACT_DEFAULT_FONT_SIZE : DESKTOP_DEFAULT_FONT_SIZE, fontFamily: DEFAULT_FONT_FAMILY, color: '', backgroundColor: '', align: 'left', bold: false, italic: false, underline: false })
 const copyState = ref('idle')
 const copyLabel = computed(() => copyState.value === 'copied' ? 'Copied' : copyState.value === 'error' ? 'Copy failed' : 'Copy')
 
-const DEBOUNCE_MS = 1000
+const DEBOUNCE_MS = 3000
 const QUALITY_DEBOUNCE_MS = 5000
+const AUTOCOMPLETE_DEBOUNCE_MS = 450
+const AUTOCOMPLETE_MAX_CONTEXT = 200
+const REPHRASE_MAX_LENGTH = 4000
 const BLOCK_SEPARATOR = '\n\n'
 const ACCEPT_TRANSACTION_META = 'grammarAccept'
+const AUTOCOMPLETE_ACCEPT_META = 'autocompleteAccept'
+const REWRITE_ACCEPT_META = 'professionalRewriteAccept'
 const GRAMMAR_DECORATION_META = 'grammarDecorations'
 let debounceTimer = null
 let activeController = null
 let activeQualityController = null
+let autocompleteTimer = null
+let activeAutocompleteController = null
+let autocompleteSequence = 0
+let autocompleteSuggestion = null
+let activeRewriteController = null
+let rewriteRequestSequence = 0
+const draftAutocompleteSessionId = 'draft-' + (crypto.randomUUID?.() || Date.now())
 let qualityDebounceTimer = null
 let qualityRequestSequence = 0
 let lastQualityObservedText = null
@@ -502,6 +570,115 @@ function updateQualityEligibility(text) {
   documentCharacterCount.value = text.length
 }
 
+function autocompleteSessionId() {
+  return activeDocumentId.value ? `document-${activeDocumentId.value}` : draftAutocompleteSessionId
+}
+
+function autocompleteContext(editorInstance) {
+  if (!editorInstance?.isEditable || !editorInstance.isFocused) return null
+  const { selection } = editorInstance.state
+  const { $from, empty } = selection
+  if (!empty || !$from.parent.isTextblock || $from.parentOffset !== $from.parent.content.size) return null
+
+  const start = Math.max(0, $from.parentOffset - AUTOCOMPLETE_MAX_CONTEXT)
+  const query = $from.parent.textBetween(start, $from.parentOffset, '', '\ufffc')
+  if (query.trim().length < 3 || !/[\p{L}\p{N}][\p{L}\p{N}'’,-]*\s?$/u.test(query)) return null
+  return { position: selection.from, query }
+}
+
+function resetAutocomplete(clearDecoration = true) {
+  autocompleteSequence += 1
+  if (autocompleteTimer) clearTimeout(autocompleteTimer)
+  autocompleteTimer = null
+  if (activeAutocompleteController) activeAutocompleteController.abort()
+  activeAutocompleteController = null
+  autocompleteSuggestion = null
+  if (clearDecoration) editor.value?.commands.clearAutocompleteGhost()
+}
+
+function scheduleAutocomplete(editorInstance) {
+  resetAutocomplete(false)
+  const context = autocompleteContext(editorInstance)
+  if (!context) return
+  const sequence = autocompleteSequence
+  const sessionId = autocompleteSessionId()
+  autocompleteTimer = setTimeout(() => {
+    autocompleteTimer = null
+    runAutocomplete(sequence, context, sessionId)
+  }, AUTOCOMPLETE_DEBOUNCE_MS)
+}
+
+async function runAutocomplete(sequence, expectedContext, sessionId) {
+  if (!editor.value || sequence !== autocompleteSequence) return
+  const currentContext = autocompleteContext(editor.value)
+  if (
+    !currentContext ||
+    currentContext.position !== expectedContext.position ||
+    currentContext.query !== expectedContext.query
+  ) return
+
+  const controller = new AbortController()
+  activeAutocompleteController = controller
+  try {
+    const response = await grammarApi.autocomplete(
+      expectedContext.query,
+      sessionId,
+      controller.signal
+    )
+    const latestContext = autocompleteContext(editor.value)
+    if (
+      sequence !== autocompleteSequence ||
+      !latestContext ||
+      latestContext.position !== expectedContext.position ||
+      latestContext.query !== expectedContext.query ||
+      !response?.success ||
+      typeof response.output !== 'string' ||
+      !response.output.trim()
+    ) return
+
+    autocompleteSuggestion = {
+      position: expectedContext.position,
+      output: response.output,
+      query: typeof response.query === 'string' ? response.query : expectedContext.query,
+      hash: response.hash,
+      sessionId
+    }
+    editor.value.commands.showAutocompleteGhost({
+      position: autocompleteSuggestion.position,
+      text: autocompleteSuggestion.output
+    })
+  } catch (error) {
+    if (!error.isCanceled && error.name !== 'CanceledError' && sequence === autocompleteSequence) {
+      console.debug('Autocomplete unavailable:', error.message)
+    }
+  } finally {
+    if (activeAutocompleteController === controller) activeAutocompleteController = null
+  }
+}
+
+function acceptAutocompleteSuggestion() {
+  if (!editor.value || !autocompleteSuggestion) return false
+  const { selection } = editor.value.state
+  if (!selection.empty || selection.from !== autocompleteSuggestion.position) {
+    resetAutocomplete()
+    return false
+  }
+
+  const accepted = autocompleteSuggestion
+  resetAutocomplete(false)
+  const tr = editor.value.state.tr
+    .insertText(accepted.output, accepted.position)
+    .setMeta(AUTOCOMPLETE_ACCEPT_META, true)
+  editor.value.view.dispatch(tr)
+  grammarApi.acceptAutocomplete(
+    accepted.hash,
+    accepted.query,
+    accepted.output,
+    accepted.sessionId
+  ).catch(() => {})
+  return true
+}
+
 // Initialize Tiptap editor
 const editor = useEditor({
   content: savedSession?.doc || createEmptyDocument(),
@@ -526,6 +703,7 @@ const editor = useEditor({
     }),
     TextAlign.configure({ types: ['heading', 'paragraph'], defaultAlignment: 'left' }),
     GrammarIssueMark,
+    AutocompleteGhost,
     createCommentDecorations(() => comments.value)
   ],
   onCreate: ({ editor: editorInstance }) => {
@@ -545,13 +723,32 @@ const editor = useEditor({
       hasDocumentContent.value = currentText.trim().length > 0
       updateQualityEligibility(currentText)
     }
-    if (transaction.docChanged && !transaction.getMeta(GRAMMAR_DECORATION_META)) {
+    if (transaction.docChanged && !transaction.getMeta(GRAMMAR_DECORATION_META) && !loadingSession) {
       mapComments(transaction)
       scheduleSave(editorInstance)
       scheduleCommentLayout()
     }
   },
   onUpdate: ({ editor: editorInstance, transaction }) => {
+    const shouldScheduleAutocomplete = (
+      transaction.docChanged &&
+      !transaction.getMeta(GRAMMAR_DECORATION_META) &&
+      !transaction.getMeta(AUTOCOMPLETE_ACCEPT_META) &&
+      !transaction.getMeta(ACCEPT_TRANSACTION_META) &&
+      !transaction.getMeta(REWRITE_ACCEPT_META) &&
+      !loadingSession
+    )
+    if (
+      transaction.docChanged &&
+      !transaction.getMeta(GRAMMAR_DECORATION_META) &&
+      !loadingSession
+    ) {
+      if (
+        transaction.getMeta(AUTOCOMPLETE_ACCEPT_META) ||
+        transaction.getMeta(ACCEPT_TRANSACTION_META) ||
+        transaction.getMeta(REWRITE_ACCEPT_META)
+      ) resetAutocomplete(false)
+    }
     if (transaction.docChanged && !transaction.getMeta(GRAMMAR_DECORATION_META) && !loadingSession) {
       scheduleQualityAssessment(editorInstance)
     }
@@ -562,7 +759,10 @@ const editor = useEditor({
       return
     }
     scheduleGrammarCheck(editorInstance)
+    if (shouldScheduleAutocomplete) scheduleAutocomplete(editorInstance)
   },
+  onSelectionUpdate: () => resetAutocomplete(),
+  onBlur: () => resetAutocomplete(),
   editorProps: {
     attributes: {
       class: 'prose-editor focus:outline-none'
@@ -587,6 +787,20 @@ const editor = useEditor({
       return false
     },
     handleKeyDown(view, event) {
+      if (event.key === 'Escape' && rewrite.visible) {
+        event.preventDefault()
+        closeProfessionalRewrite()
+        return true
+      }
+      if (event.key === 'Tab' && autocompleteSuggestion) {
+        event.preventDefault()
+        return acceptAutocompleteSuggestion()
+      }
+      if (event.key === 'Escape' && autocompleteSuggestion) {
+        event.preventDefault()
+        resetAutocomplete()
+        return true
+      }
       if ((event.key === 'Enter' || event.key === ' ') && event.target?.classList?.contains('comment-marker')) {
         event.preventDefault()
         openCommentReader(event.target.getAttribute('data-comment-id'))
@@ -613,9 +827,10 @@ function syncToolbarState(editorInstance) {
     ? `heading${[1, 2, 3].find(level => editorInstance.isActive('heading', { level }))}`
     : 'paragraph'
   const size = editorInstance.getAttributes('textStyle').fontSize || ''
-  toolbarState.fontSize = FONT_SIZES.some(value => `${value}px` === size) ? size : ''
+  const responsiveDefaultSize = compactEditor.value ? COMPACT_DEFAULT_FONT_SIZE : DESKTOP_DEFAULT_FONT_SIZE
+  toolbarState.fontSize = FONT_SIZES.some(value => `${value}px` === size) ? size : responsiveDefaultSize
   const textStyle = editorInstance.getAttributes('textStyle')
-  toolbarState.fontFamily = textStyle.fontFamily || ''
+  toolbarState.fontFamily = textStyle.fontFamily || DEFAULT_FONT_FAMILY
   toolbarState.color = textStyle.color || ''
   toolbarState.backgroundColor = textStyle.backgroundColor || ''
   const blockType = editorInstance.isActive('heading') ? 'heading' : 'paragraph'
@@ -762,14 +977,16 @@ async function saveDocument() {
 
 function requestSave({ continueDecision = false } = {}) {
   if (!editor.value || !hasDocumentContent.value || saveStatus.value === 'saving') return
-  titleDialog.title = deriveTitle()
+  titleDialog.title = activeDocumentId.value ? documentTitle.value.trim().slice(0, 120) : ''
   titleDialog.continueDecision = continueDecision
   titleDialog.visible = true
 }
 
 function closeTitleDialog() {
+  const shouldCancelDecision = titleDialog.continueDecision && decision.visible
   titleDialog.visible = false
   titleDialog.continueDecision = false
+  if (shouldCancelDecision) finishDecision(false)
 }
 
 async function confirmTitleSave() {
@@ -785,6 +1002,8 @@ async function confirmTitleSave() {
 
 function applyDocumentSession(session, { dirty = false } = {}) {
   if (!editor.value) return
+  resetAutocomplete()
+  closeProfessionalRewrite()
   loadingSession = true
   Object.keys(issuesMap).forEach(id => delete issuesMap[id])
   closePopover()
@@ -806,6 +1025,7 @@ function applyDocumentSession(session, { dirty = false } = {}) {
   saveStatus.value = dirty ? 'unsaved' : 'saved'
   nextTick(() => {
     loadingSession = false
+    validateComments(editor.value.state.doc)
     refreshCommentDecorations(false)
     scheduleCommentLayout()
   })
@@ -972,32 +1192,43 @@ function selectedQuote(doc, from, to) {
   return doc.textBetween(from, to, BLOCK_SEPARATOR)
 }
 
+function cleanUpDetachedCommentState(validComments) {
+  const validIds = new Set(validComments.map(comment => comment.id))
+  for (const id of commentCards.keys()) {
+    if (!validIds.has(id)) commentCards.delete(id)
+  }
+  if (composer.editingId && !validIds.has(composer.editingId)) closeCommentComposer()
+  if (activeCommentId.value && !validIds.has(activeCommentId.value)) closeCommentReader()
+}
+
 function validateComments(doc) {
-  let changed = false
-  comments.value = comments.value.map(comment => {
-    if (comment.unlinked) return comment
-    const valid = comment.from >= 0 && comment.from < comment.to &&
-      comment.to <= doc.content.size && selectedQuote(doc, comment.from, comment.to) === comment.quote
-    if (valid) return comment
-    changed = true
-    return { ...comment, unlinked: true }
-  })
-  if (changed) scheduleSave()
+  const validComments = comments.value.filter(comment =>
+    !comment.unlinked && comment.from >= 0 && comment.from < comment.to &&
+    comment.to <= doc.content.size && selectedQuote(doc, comment.from, comment.to) === comment.quote
+  )
+  if (validComments.length === comments.value.length) return
+  comments.value = validComments
+  cleanUpDetachedCommentState(validComments)
+  scheduleSave()
 }
 
 function mapComments(transaction) {
   if (!comments.value.length) return
   let changed = false
-  comments.value = comments.value.map(comment => {
-    if (comment.unlinked) return comment
+  const validComments = []
+  for (const comment of comments.value) {
     const from = transaction.mapping.map(comment.from, 1)
     const to = transaction.mapping.map(comment.to, -1)
     const valid = from < to && to <= transaction.doc.content.size &&
       selectedQuote(transaction.doc, from, to) === comment.quote
     if (from !== comment.from || to !== comment.to || !valid) changed = true
-    return valid ? { ...comment, from, to } : { ...comment, unlinked: true }
-  })
-  if (changed) queueMicrotask(refreshCommentDecorations)
+    if (valid) validComments.push({ ...comment, from, to })
+  }
+  comments.value = validComments
+  if (changed) {
+    cleanUpDetachedCommentState(validComments)
+    queueMicrotask(refreshCommentDecorations)
+  }
 }
 
 function refreshCommentDecorations(persist = true) {
@@ -1009,11 +1240,13 @@ function refreshCommentDecorations(persist = true) {
 
 function shouldShowCommentMenu({ editor: editorInstance, state }) {
   const { from, to, empty } = state.selection
-  return editorInstance.isEditable && !empty && !!selectedQuote(state.doc, from, to).trim() && !composer.visible
+  return editorInstance.isEditable && !empty && !!selectedQuote(state.doc, from, to).trim() &&
+    !composer.visible && !rewrite.visible
 }
 
 function openCommentComposer() {
   if (!editor.value) return
+  closeProfessionalRewrite()
   const { from, to, empty } = editor.value.state.selection
   if (empty) return
   const quote = selectedQuote(editor.value.state.doc, from, to)
@@ -1032,6 +1265,121 @@ function closeCommentComposer() {
   composer.visible = false
   composer.editingId = null
   composer.note = ''
+}
+
+function closeProfessionalRewrite() {
+  rewriteRequestSequence += 1
+  if (activeRewriteController) activeRewriteController.abort()
+  activeRewriteController = null
+  Object.assign(rewrite, {
+    visible: false,
+    status: 'idle',
+    from: 0,
+    to: 0,
+    original: '',
+    results: [],
+    selectedId: null,
+    error: ''
+  })
+}
+
+function openProfessionalRewrite() {
+  if (!editor.value) return
+  const { from, to, empty } = editor.value.state.selection
+  if (empty) return
+  const original = selectedQuote(editor.value.state.doc, from, to)
+  if (!original.trim()) return
+
+  closeCommentComposer()
+  closeProfessionalRewrite()
+  resetAutocomplete()
+  const coords = editor.value.view.coordsAtPos(to)
+  const paper = paperRef.value?.getBoundingClientRect()
+  Object.assign(rewrite, {
+    visible: true,
+    status: original.length > REPHRASE_MAX_LENGTH ? 'stale' : 'loading',
+    from,
+    to,
+    original,
+    results: [],
+    selectedId: null,
+    error: original.length > REPHRASE_MAX_LENGTH
+      ? `Select no more than ${REPHRASE_MAX_LENGTH.toLocaleString()} characters.`
+      : '',
+    x: paper ? Math.max(12, Math.min(coords.left - paper.left, paper.width - 404)) : 12,
+    y: paper ? coords.bottom - paper.top + 8 : 12
+  })
+  if (original.length <= REPHRASE_MAX_LENGTH) requestProfessionalRewrite()
+}
+
+async function requestProfessionalRewrite() {
+  if (!rewrite.visible || !rewrite.original || rewrite.status === 'loading' && activeRewriteController) return
+  if (activeRewriteController) activeRewriteController.abort()
+  const controller = new AbortController()
+  activeRewriteController = controller
+  const sequence = ++rewriteRequestSequence
+  rewrite.status = 'loading'
+  rewrite.results = []
+  rewrite.selectedId = null
+  rewrite.error = ''
+
+  try {
+    const response = await grammarApi.rephraseProfessional(rewrite.original, controller.signal)
+    if (sequence !== rewriteRequestSequence || !rewrite.visible) return
+    if (!response?.success || !Array.isArray(response.results)) {
+      throw new Error(response?.error || 'Professional rewrite returned an invalid response.')
+    }
+    const seenText = new Set()
+    const seenId = new Set()
+    const results = []
+    for (const [index, result] of response.results.entries()) {
+      if (typeof result?.id !== 'string' || typeof result?.text !== 'string' || !result.text.trim()) continue
+      const text = result.text.trim()
+      const textKey = text.toLocaleLowerCase()
+      if (seenText.has(textKey)) continue
+      seenText.add(textKey)
+      let id = result.id || `rewrite-${index}`
+      if (seenId.has(id)) id = `${id}-${index}`
+      seenId.add(id)
+      results.push({ id, text })
+      if (results.length === 3) break
+    }
+    rewrite.results = results
+    rewrite.selectedId = results[0]?.id || null
+    rewrite.status = results.length ? 'success' : 'empty'
+  } catch (error) {
+    if (error.isCanceled || error.name === 'CanceledError' || sequence !== rewriteRequestSequence) return
+    rewrite.status = 'error'
+    rewrite.error = error.message || 'Professional rewrite is temporarily unavailable.'
+  } finally {
+    if (activeRewriteController === controller) activeRewriteController = null
+  }
+}
+
+function applyProfessionalRewrite() {
+  if (!editor.value || rewrite.status !== 'success') return
+  const result = rewrite.results.find(candidate => candidate.id === rewrite.selectedId)
+  if (!result) return
+  const { state, view } = editor.value
+  const rangeIsCurrent = rewrite.from >= 0 && rewrite.from < rewrite.to &&
+    rewrite.to <= state.doc.content.size &&
+    selectedQuote(state.doc, rewrite.from, rewrite.to) === rewrite.original
+  if (!rangeIsCurrent) {
+    rewrite.status = 'stale'
+    rewrite.error = 'The document changed while this rewrite was loading. Select the text again.'
+    rewrite.results = []
+    rewrite.selectedId = null
+    return
+  }
+
+  resetAutocomplete(false)
+  const cursor = rewrite.from + result.text.length
+  const tr = state.tr
+    .insertText(result.text, rewrite.from, rewrite.to)
+    .setMeta(REWRITE_ACCEPT_META, true)
+  view.dispatch(tr)
+  closeProfessionalRewrite()
+  editor.value.commands.focus(Math.min(cursor, editor.value.state.doc.content.size))
 }
 
 function openCommentReader(commentId) {
@@ -1769,6 +2117,8 @@ const handleDocumentClick = (e) => {
 
 function handleWindowResize() {
   mobileMorePortal.value = window.innerWidth <= 600
+  compactEditor.value = window.innerWidth <= 1024
+  if (editor.value) syncToolbarState(editor.value)
   scheduleCommentLayout()
 }
 
@@ -1818,8 +2168,11 @@ onBeforeUnmount(() => {
   if (copyResetTimer) clearTimeout(copyResetTimer)
   if (debounceTimer) clearTimeout(debounceTimer)
   if (qualityDebounceTimer) clearTimeout(qualityDebounceTimer)
+  if (autocompleteTimer) clearTimeout(autocompleteTimer)
   if (activeController) activeController.abort()
   if (activeQualityController) activeQualityController.abort()
+  if (activeAutocompleteController) activeAutocompleteController.abort()
+  if (activeRewriteController) activeRewriteController.abort()
   if (decision.resolve) finishDecision(false)
   if (editor.value) {
     editor.value.destroy()
@@ -2178,6 +2531,11 @@ onBeforeUnmount(() => {
 
 .grammar-status { padding-left: 0; white-space: nowrap; }
 
+.status-label {
+  line-height: 1;
+  transform: translateY(1px);
+}
+
 .documents-overlay {
   position: fixed;
   inset: 0;
@@ -2380,6 +2738,178 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
+.comment-bubble button:hover,
+.comment-bubble button:focus-visible {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  outline: none;
+}
+
+.comment-bubble-divider {
+  width: 1px;
+  margin: 4px 2px;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.rewrite-popover {
+  position: absolute;
+  z-index: 75;
+  width: 380px;
+  max-width: calc(100% - 24px);
+  box-sizing: border-box;
+  padding: 15px;
+  border: 1px solid #ded7e9;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 18px 45px rgba(42, 25, 65, 0.22);
+  color: var(--text-h);
+  text-align: left;
+}
+
+.rewrite-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.rewrite-header span {
+  color: #7c3aed;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.rewrite-header h3 {
+  margin: 2px 0 0;
+  color: var(--text-h);
+  font-size: 16px;
+}
+
+.rewrite-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 22px;
+  cursor: pointer;
+}
+
+.rewrite-close:hover { background: rgba(124, 58, 237, .08); }
+
+.rewrite-results {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  max-height: 290px;
+  overflow-y: auto;
+}
+
+.rewrite-result {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ddd6e8;
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text-h);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rewrite-result:hover { border-color: #a78bfa; }
+.rewrite-result.is-selected { border-color: #7c3aed; background: #f5f3ff; box-shadow: 0 0 0 1px #7c3aed; }
+
+.rewrite-radio {
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  box-sizing: border-box;
+  border: 2px solid #b6acc7;
+  border-radius: 50%;
+}
+
+.rewrite-result.is-selected .rewrite-radio {
+  border: 4px solid #7c3aed;
+  background: #fff;
+}
+
+.rewrite-message {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 72px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.rewrite-message--error {
+  display: block;
+  min-height: 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.rewrite-message--error p { margin: 0 0 8px; }
+.rewrite-message--error button {
+  border: 0;
+  background: transparent;
+  color: #7c3aed;
+  padding: 0;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.rewrite-spinner {
+  width: 17px;
+  height: 17px;
+  border: 2px solid #ddd6fe;
+  border-top-color: #7c3aed;
+  border-radius: 50%;
+  animation: rewrite-spin .8s linear infinite;
+}
+
+@keyframes rewrite-spin { to { transform: rotate(360deg); } }
+
+.rewrite-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 13px;
+  padding-top: 12px;
+  border-top: 1px solid #eee9f4;
+}
+
+.rewrite-actions button {
+  padding: 7px 12px;
+  border: 1px solid #d7cee6;
+  border-radius: 7px;
+  background: var(--surface);
+  color: #5b21b6;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.rewrite-actions .rewrite-replace { border-color: #6d28d9; background: #6d28d9; color: #fff; }
+.rewrite-actions button:disabled { opacity: .5; cursor: not-allowed; }
+
 .comment-composer {
   position: absolute;
   z-index: 70;
@@ -2405,13 +2935,18 @@ onBeforeUnmount(() => {
   box-sizing: border-box;
   width: 100%;
   resize: vertical;
-  border: 1px solid #cfc7db;
+  border: 0;
   border-radius: 7px;
+  outline: 0;
   padding: 8px;
   font: inherit;
   font-size: 13px;
   color: #1f2937;
   background: var(--bg);
+}
+
+.comment-composer textarea:focus {
+  background: #fffaf2;
 }
 
 .comment-composer-actions, .comment-card-actions {
@@ -2489,24 +3024,6 @@ onBeforeUnmount(() => {
 .comment-card time {
   color: #746b80;
   font-size: 10px;
-}
-
-.unlinked-comments {
-  padding: 20px 28px;
-  border-top: 1px solid #eee5f0;
-}
-
-.unlinked-comments h3 {
-  margin: 0 0 10px;
-  color: #6b4187;
-  font-size: 14px;
-}
-
-.comment-card--unlinked {
-  display: inline-block;
-  vertical-align: top;
-  width: min(220px, 100%);
-  margin: 0 10px 10px 0;
 }
 
 .comment-reader-overlay {
@@ -2603,9 +3120,37 @@ onBeforeUnmount(() => {
 .comment-reader-leave-to .comment-reader-dialog { opacity: 0; transform: translateY(12px) scale(.98); }
 
 :root[data-theme='dark'] .comment-card,
-:root[data-theme='dark'] .comment-composer {
+:root[data-theme='dark'] .comment-composer,
+:root[data-theme='dark'] .rewrite-popover {
   background: #302b3b;
   border-color: #574b68;
+}
+
+:root[data-theme='dark'] .rewrite-result {
+  border-color: #574b68;
+  background: #302b3b;
+  color: #f3eff8;
+}
+
+:root[data-theme='dark'] .rewrite-result.is-selected {
+  border-color: #a78bfa;
+  background: #3b3152;
+}
+
+:root[data-theme='dark'] .rewrite-message--error { background: #482a34; color: #fecaca; }
+:root[data-theme='dark'] .rewrite-actions { border-top-color: #574b68; }
+:root[data-theme='dark'] .rewrite-actions .rewrite-cancel {
+  border-color: #8b7aa3;
+  background: #41384f;
+  color: #f3eff8;
+}
+:root[data-theme='dark'] .rewrite-actions .rewrite-cancel:hover,
+:root[data-theme='dark'] .rewrite-actions .rewrite-cancel:focus-visible {
+  border-color: #c4b5fd;
+  background: #514462;
+  color: #fff;
+  outline: 2px solid rgba(196, 181, 253, .45);
+  outline-offset: 2px;
 }
 
 :root[data-theme='dark'] .comment-card p,
@@ -2613,9 +3158,48 @@ onBeforeUnmount(() => {
   color: #f3eff8;
 }
 
+:root[data-theme='dark'] .comment-composer textarea {
+  border: 0;
+  outline: 0;
+  background: #3b3548;
+  color: #f3eff8;
+  caret-color: #f3eff8;
+}
+
+:root[data-theme='dark'] .comment-composer textarea::placeholder {
+  color: #b8afc5;
+  opacity: 1;
+}
+
+:root[data-theme='dark'] .comment-composer textarea:focus {
+  background: #463e54;
+}
+
+:root[data-theme='dark'] .comment-composer-actions button:first-child {
+  border-color: transparent;
+  background: #41384f;
+  color: #f3eff8;
+}
+
+:root[data-theme='dark'] .comment-composer-actions button:first-child:hover {
+  background: #4d435e;
+  color: #fff;
+}
+
+:root[data-theme='dark'] .comment-card-actions button {
+  border-color: #8b5cf6;
+  background: #302b3b;
+  color: #ddd6fe;
+}
+
+:root[data-theme='dark'] .comment-card-actions button:hover,
+:root[data-theme='dark'] .comment-card-actions button:focus-visible {
+  background: #44385c;
+  color: #fff;
+}
+
 :root[data-theme='dark'] .comment-card blockquote,
-:root[data-theme='dark'] .comment-card time,
-:root[data-theme='dark'] .unlinked-comments h3 {
+:root[data-theme='dark'] .comment-card time {
   color: #d5b8e9;
 }
 
@@ -3117,7 +3701,7 @@ onBeforeUnmount(() => {
     overflow-y: auto;
     overscroll-behavior: contain;
     padding: 18px;
-    border-radius: 0 18px 18px 0;
+    border-radius: 0;
     box-shadow: 18px 0 50px rgba(25, 18, 42, .24);
     pointer-events: none;
     opacity: .92;
@@ -3209,6 +3793,15 @@ onBeforeUnmount(() => {
     max-width: none;
     transform: translate(-50%, -50%);
   }
+  .rewrite-popover {
+    position: fixed;
+    top: 50% !important;
+    left: 50% !important;
+    z-index: 241;
+    width: min(380px, calc(100vw - 24px));
+    max-width: none;
+    transform: translate(-50%, -50%);
+  }
 }
 
 @media (max-width: 700px) and (prefers-reduced-motion: reduce) {
@@ -3228,6 +3821,7 @@ onBeforeUnmount(() => {
   box-sizing: border-box;
   color: #1f2937;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 18px;
   line-height: 1.75;
 }
 
@@ -3235,7 +3829,7 @@ onBeforeUnmount(() => {
   flex: 1;
   min-width: 0;
   box-sizing: border-box;
-  padding: 36px 56px 48px;
+  padding: 24px;
   cursor: text;
 }
 
@@ -3245,6 +3839,35 @@ onBeforeUnmount(() => {
   height: 0;
   color: #94a3b8;
   pointer-events: none;
+}
+
+.autocomplete-ghost {
+  color: #94a3b8;
+  pointer-events: none;
+  user-select: none;
+  white-space: pre-wrap;
+}
+
+.autocomplete-ghost__hint {
+  display: inline-flex;
+  margin-left: 8px;
+  padding: 1px 5px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #f8fafc;
+  color: #64748b;
+  font: 600 10px/1.4 Arial, sans-serif;
+  vertical-align: middle;
+}
+
+:root[data-theme='dark'] .autocomplete-ghost {
+  color: #7f8799;
+}
+
+:root[data-theme='dark'] .autocomplete-ghost__hint {
+  border-color: #475569;
+  background: #1e293b;
+  color: #94a3b8;
 }
 
 :root[data-theme='dark'] .tiptap-content .ProseMirror p.is-editor-empty:first-child::before {
@@ -3261,9 +3884,13 @@ onBeforeUnmount(() => {
 }
 
 .tiptap-content p {
-  font-size: 1.05rem;
+  font-size: inherit;
   margin-bottom: 1.5rem;
   color: #334155;
+}
+
+@media (max-width: 1024px) {
+  .tiptap-content { font-size: 16px; }
 }
 
 .author-meta {

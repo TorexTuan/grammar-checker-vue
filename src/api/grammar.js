@@ -35,6 +35,38 @@ export const grammarApi = {
     })
   },
 
+  autocomplete(query, sessionId, signal) {
+    return apiClient.post('/autocomplete/', {
+      query,
+      session_id: sessionId
+    }, {
+      signal,
+      timeout: 7000
+    })
+  },
+
+  acceptAutocomplete(hash, query, completion, sessionId) {
+    return apiClient.post('/autocomplete/accept/', {
+      hash,
+      query,
+      completion,
+      session_id: sessionId
+    }, {
+      timeout: 7000
+    })
+  },
+
+  rephraseProfessional(text, signal) {
+    return apiClient.post('/rephrase/', {
+      text,
+      style: 'professional',
+      num_results: 3
+    }, {
+      signal,
+      timeout: 15000
+    })
+  },
+
   /**
    * Health check
    */

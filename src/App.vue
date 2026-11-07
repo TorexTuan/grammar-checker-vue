@@ -2,14 +2,13 @@
   <div id="layout">
     <header class="app-header">
       <div class="logo">
-        <img class="logo-icon" src="/favicon.svg" alt="" aria-hidden="true" />
-        <h1>Ý Grammar Checker</h1>
+        <h1>Grammar Checker</h1>
       </div>
       <nav>
         <button v-if="!store.user" type="button" class="account-button" @click="store.openAuth('login')">Sign in</button>
         <div v-else class="account-menu">
           <span class="account-email" :title="store.user.email">{{ store.user.email }}</span>
-          <button type="button" class="account-button account-button--quiet" :disabled="store.loading" @click="handleLogout">Log out</button>
+          <button ref="logoutButtonRef" type="button" class="account-button account-button--quiet" :disabled="store.loading" @click="handleLogout">Log out</button>
         </div>
         <button type="button" class="theme-toggle" :aria-pressed="theme === 'dark'" :aria-label="theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'" @click="toggleTheme">
           <svg v-if="theme === 'dark'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42" /></svg>
@@ -22,6 +21,33 @@
       <router-view />
     </main>
     <AuthModal />
+    <Teleport to="body">
+      <div
+        v-if="logoutConfirmVisible"
+        class="logout-confirm-overlay"
+        @mousedown.self="closeLogoutConfirmation"
+      >
+        <section
+          class="logout-confirm-dialog"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="logout-confirm-title"
+          aria-describedby="logout-confirm-description"
+          @keydown.esc.stop.prevent="closeLogoutConfirmation"
+        >
+          <p class="logout-confirm-eyebrow">Account</p>
+          <h2 id="logout-confirm-title">Log out?</h2>
+          <p id="logout-confirm-description">Are you sure you want to log out of your account?</p>
+          <p v-if="logoutError" class="logout-confirm-error" role="alert">{{ logoutError }}</p>
+          <div class="logout-confirm-actions">
+            <button ref="logoutCancelButtonRef" type="button" class="logout-confirm-button" @click="closeLogoutConfirmation">Cancel</button>
+            <button type="button" class="logout-confirm-button logout-confirm-button--primary" :disabled="logoutConfirming || store.loading" @click="confirmLogout">
+              {{ logoutConfirming || store.loading ? 'Logging out…' : 'Log out' }}
+            </button>
+          </div>
+        </section>
+      </div>
+    </Teleport>
     <Transition name="snackbar">
       <div v-if="snackbarVisible" class="app-snackbar" role="status" aria-live="polite">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>
@@ -33,7 +59,7 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import AuthModal from './components/auth/AuthModal.vue'
 import { useAppStore } from './stores/app'
 
@@ -41,13 +67,44 @@ const store = useAppStore()
 const theme = ref(document.documentElement.dataset.theme || 'light')
 const snackbarVisible = ref(false)
 const snackbarMessage = ref('')
+const logoutConfirmVisible = ref(false)
+const logoutConfirming = ref(false)
+const logoutError = ref('')
+const logoutButtonRef = ref(null)
+const logoutCancelButtonRef = ref(null)
 let snackbarTimer = null
 store.initializeAuth()
 
-async function handleLogout() {
-  const loggedOut = await store.requestLogout()
-  if (!loggedOut) return
-  showSnackbar('You have successfully logged out.')
+function handleLogout() {
+  if (store.loading) return
+  logoutError.value = ''
+  logoutConfirmVisible.value = true
+  nextTick(() => logoutCancelButtonRef.value?.focus())
+}
+
+function closeLogoutConfirmation() {
+  if (logoutConfirming.value) return
+  logoutConfirmVisible.value = false
+  logoutError.value = ''
+  nextTick(() => logoutButtonRef.value?.focus())
+}
+
+async function confirmLogout() {
+  if (logoutConfirming.value || store.loading) return
+  logoutConfirming.value = true
+  logoutError.value = ''
+  logoutConfirmVisible.value = false
+  try {
+    const loggedOut = await store.requestLogout()
+    if (loggedOut) showSnackbar('You have successfully logged out.')
+    else nextTick(() => logoutButtonRef.value?.focus())
+  } catch {
+    logoutError.value = 'Unable to log out. Please try again.'
+    logoutConfirmVisible.value = true
+    nextTick(() => logoutCancelButtonRef.value?.focus())
+  } finally {
+    logoutConfirming.value = false
+  }
 }
 
 function showSnackbar(message) {
@@ -115,13 +172,6 @@ onBeforeUnmount(() => window.clearTimeout(snackbarTimer))
   align-items: center;
   min-width: 0;
   gap: 10px;
-}
-
-.logo-icon {
-  flex: 0 0 38px;
-  width: 38px;
-  height: 38px;
-  object-fit: contain;
 }
 
 .logo h1 {
@@ -193,6 +243,67 @@ nav a.router-link-exact-active {
   border-color: #4a4d61;
   background: var(--surface);
   color: #bac0d0;
+}
+
+.logout-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 320;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  padding: 20px;
+  background: rgba(15, 10, 24, .48);
+  backdrop-filter: blur(3px);
+}
+
+.logout-confirm-dialog {
+  width: min(420px, 100%);
+  box-sizing: border-box;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 22px 60px rgba(15, 10, 24, .28);
+  color: var(--text-h);
+  text-align: left;
+}
+
+.logout-confirm-eyebrow {
+  margin: 0 0 4px;
+  color: var(--brand-color);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.logout-confirm-dialog h2 { margin: 0; font-size: 24px; }
+.logout-confirm-dialog > p:not(.logout-confirm-eyebrow, .logout-confirm-error) { margin: 8px 0 22px; color: var(--text); font-size: 14px; }
+.logout-confirm-error { margin: -10px 0 18px; color: #b91c1c; font-size: 13px; font-weight: 700; }
+.logout-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+.logout-confirm-button {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text-h);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.logout-confirm-button--primary { border-color: #6d28d9; background: #6d28d9; color: #fff; }
+.logout-confirm-button:disabled { opacity: .6; cursor: wait; }
+.logout-confirm-button:focus-visible { outline: 3px solid rgba(139, 92, 246, .35); outline-offset: 2px; }
+
+:global(:root[data-theme='dark'] .logout-confirm-button:not(.logout-confirm-button--primary)) {
+  border-color: #5f6478;
+  background: #303344;
+  color: #f3f4f6;
 }
 
 .theme-toggle {
@@ -284,7 +395,6 @@ nav a.router-link-exact-active {
   #layout { --app-header-height: 54px; }
   .app-header { gap: 8px; padding: .65rem .75rem; }
   .logo { gap: 7px; }
-  .logo-icon { flex-basis: 28px; width: 28px; height: 28px; }
   .logo h1 { font-size: .95rem; }
   nav { flex: 0 0 auto; gap: 6px; }
   .account-email { display: none; }
