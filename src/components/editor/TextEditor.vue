@@ -252,6 +252,63 @@
           </div>
           </div>
         </section>
+        <section class="ai-detector-panel" :class="{ 'is-collapsed': aiDetectorCollapsed }" aria-labelledby="ai-detector-title">
+          <div class="ai-detector-header">
+            <div>
+              <h2 id="ai-detector-title">AI Detector</h2>
+              <span v-if="aiDetection.status === 'success'">{{ aiScorePercent }}%</span>
+            </div>
+            <button type="button" class="ai-detector-toggle" :aria-expanded="!aiDetectorCollapsed" aria-controls="ai-detector-content" :aria-label="aiDetectorCollapsed ? 'Expand AI detector' : 'Collapse AI detector'" @click="aiDetectorCollapsed = !aiDetectorCollapsed">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 8 5 5 5-5" /></svg>
+            </button>
+          </div>
+          <div v-show="!aiDetectorCollapsed" id="ai-detector-content" class="ai-detector-content" :aria-busy="aiDetection.status === 'loading'">
+            <template v-if="!appStore.user">
+              <p>Sign in to analyze whether this text shows patterns associated with AI writing.</p>
+              <button type="button" class="ai-analyze-button" @click="requestAiDetection">Sign in to analyze</button>
+            </template>
+            <template v-else>
+              <p v-if="documentCharacterCount < AI_DETECT_MIN_CHARACTERS" class="ai-detector-hint">
+                Add {{ AI_DETECT_MIN_CHARACTERS - documentCharacterCount }} more character(s) to analyze this text.
+              </p>
+              <p v-else-if="documentCharacterCount > AI_DETECT_MAX_CHARACTERS" class="ai-detector-hint ai-detector-hint--error">
+                AI Detector supports up to {{ AI_DETECT_MAX_CHARACTERS.toLocaleString() }} characters.
+              </p>
+              <button type="button" class="ai-analyze-button" :disabled="!canRunAiDetection || aiDetection.status === 'loading'" @click="requestAiDetection">
+                {{ aiDetection.status === 'loading' ? 'Analyzing…' : aiDetection.status === 'success' ? 'Analyze again' : 'Analyze text' }}
+              </button>
+
+              <div v-if="aiDetection.status === 'loading'" class="ai-detector-message" role="status">
+                <span class="rewrite-spinner" aria-hidden="true"></span>
+                Analyzing writing patterns…
+              </div>
+              <p v-else-if="aiDetection.status === 'error'" class="ai-detector-message ai-detector-message--error" role="alert">{{ aiDetection.error }}</p>
+              <p v-else-if="aiDetection.status === 'stale'" class="ai-detector-message" role="status">Text changed — analyze again.</p>
+
+              <div v-else-if="aiDetection.status === 'success' && aiDetection.result" class="ai-detector-result">
+                <p v-if="aiDetection.result.low_confidence" class="ai-confidence-warning" role="status">
+                  Confidence is low for this result. Add more continuous prose and review it carefully.
+                </p>
+                <div class="ai-verdict">
+                  <div class="ai-score-ring" :style="{ '--ai-score': aiScorePercent }"><strong>{{ aiScorePercent }}%</strong></div>
+                  <div>
+                    <strong>{{ aiVerdictLabel }}</strong>
+                    <span>{{ aiFractionPercent }}% of the text shows AI-like patterns</span>
+                  </div>
+                </div>
+                <div v-if="topAiSegments.length" class="ai-segment-list">
+                  <h3>Passages to review</h3>
+                  <button v-for="segment in topAiSegments" :key="`${segment.start}-${segment.end}`" type="button" @click="focusAiSegment(segment)">
+                    <span>{{ Math.round(segment.score * 100) }}%</span>
+                    <q>{{ segment.text }}</q>
+                  </button>
+                </div>
+                <p v-else class="ai-detector-hint">No individual passages were flagged for review.</p>
+                <p class="ai-detector-disclaimer">This result is an estimate and should not be treated as proof.</p>
+              </div>
+            </template>
+          </div>
+        </section>
         <div class="sidebar-header">
           <div>
             <h2>Grammar issues</h2>
@@ -382,6 +439,7 @@ import { TextStyle, FontSize, FontFamily, Color, BackgroundColor } from '@tiptap
 import TextAlign from '@tiptap/extension-text-align'
 import { GrammarIssueMark } from './extensions/GrammarIssueMark'
 import { AutocompleteGhost } from './extensions/AutocompleteGhost'
+import { AiDetectionDecorations } from './extensions/AiDetectionDecorations'
 import { createCommentDecorations, COMMENT_REFRESH_META } from './extensions/CommentDecorations'
 import FormatDropdown from './FormatDropdown.vue'
 import SuggestionPopover from './SuggestionPopover.vue'
@@ -442,10 +500,12 @@ const saveStatus = ref(savedSession ? 'unsaved' : 'saved')
 const drawerOpen = ref(false)
 const issuesDrawerOpen = ref(false)
 const qualityCollapsed = ref(false)
+const aiDetectorCollapsed = ref(false)
 const qualityStatus = ref('idle')
 const qualityAssessment = ref(null)
 const documentWordCount = ref(0)
 const documentCharacterCount = ref(0)
+const aiDetection = reactive({ status: 'idle', result: null, error: '', snapshotText: '' })
 const conflictDocument = ref(null)
 const decision = reactive({ visible: false, resolve: null, mode: 'unsaved' })
 const titleDialog = reactive({ visible: false, title: '', continueDecision: false })
@@ -462,10 +522,26 @@ const fixAllNotice = ref('')
 const issueList = computed(() => Object.values(issuesMap).sort((a, b) => a._range.from - b._range.from))
 const QUALITY_MIN_WORDS = 20
 const QUALITY_MAX_CHARACTERS = 10000
+const AI_DETECT_MIN_CHARACTERS = 300
+const AI_DETECT_MAX_CHARACTERS = 10000
 const canAssessQuality = computed(() => (
   documentWordCount.value >= QUALITY_MIN_WORDS &&
   documentCharacterCount.value <= QUALITY_MAX_CHARACTERS
 ))
+const canRunAiDetection = computed(() => (
+  !!appStore.user &&
+  documentCharacterCount.value >= AI_DETECT_MIN_CHARACTERS &&
+  documentCharacterCount.value <= AI_DETECT_MAX_CHARACTERS
+))
+const aiScorePercent = computed(() => Math.round((aiDetection.result?.score || 0) * 100))
+const aiFractionPercent = computed(() => Math.round((aiDetection.result?.ai_fraction || 0) * 100))
+const aiVerdictLabel = computed(() => {
+  if (aiDetection.result?.low_confidence) return 'Low-confidence result'
+  return ({ human: 'Likely human', mixed: 'Mixed content', ai: 'Likely AI-generated' })[aiDetection.result?.verdict] || 'Analysis complete'
+})
+const topAiSegments = computed(() => [...(aiDetection.result?.segments || [])]
+  .sort((a, b) => b.score - a.score)
+  .slice(0, 5))
 const qualityCriteria = computed(() => {
   const criteria = qualityAssessment.value?.criteria || {}
   return [
@@ -531,6 +607,8 @@ const GRAMMAR_DECORATION_META = 'grammarDecorations'
 let debounceTimer = null
 let activeController = null
 let activeQualityController = null
+let activeAiDetectionController = null
+let aiDetectionSequence = 0
 let autocompleteTimer = null
 let activeAutocompleteController = null
 let autocompleteSequence = 0
@@ -568,6 +646,22 @@ function countWords(text) {
 function updateQualityEligibility(text) {
   documentWordCount.value = countWords(text)
   documentCharacterCount.value = text.length
+}
+
+function resetAiDetection(status = 'idle') {
+  aiDetectionSequence += 1
+  if (activeAiDetectionController) activeAiDetectionController.abort()
+  activeAiDetectionController = null
+  aiDetection.status = status
+  aiDetection.result = null
+  aiDetection.error = ''
+  aiDetection.snapshotText = ''
+  editor.value?.commands.clearAiDetectionHighlights()
+}
+
+function invalidateAiDetectionForEdit() {
+  const wasActive = aiDetection.status === 'loading' || aiDetection.status === 'success'
+  resetAiDetection(wasActive ? 'stale' : 'idle')
 }
 
 function autocompleteSessionId() {
@@ -704,6 +798,7 @@ const editor = useEditor({
     TextAlign.configure({ types: ['heading', 'paragraph'], defaultAlignment: 'left' }),
     GrammarIssueMark,
     AutocompleteGhost,
+    AiDetectionDecorations,
     createCommentDecorations(() => comments.value)
   ],
   onCreate: ({ editor: editorInstance }) => {
@@ -750,6 +845,7 @@ const editor = useEditor({
       ) resetAutocomplete(false)
     }
     if (transaction.docChanged && !transaction.getMeta(GRAMMAR_DECORATION_META) && !loadingSession) {
+      invalidateAiDetectionForEdit()
       scheduleQualityAssessment(editorInstance)
     }
     if (transaction.getMeta(ACCEPT_TRANSACTION_META)) {
@@ -1003,6 +1099,7 @@ async function confirmTitleSave() {
 function applyDocumentSession(session, { dirty = false } = {}) {
   if (!editor.value) return
   resetAutocomplete()
+  resetAiDetection()
   closeProfessionalRewrite()
   loadingSession = true
   Object.keys(issuesMap).forEach(id => delete issuesMap[id])
@@ -1633,6 +1730,74 @@ function insertionHighlightRange(segments, rawPosition) {
     : null
 }
 
+function mapAiDetectionSegments(segments, snapshot) {
+  const mapped = []
+  for (const segment of Array.isArray(segments) ? segments : []) {
+    const codePointStart = Number(segment.start)
+    const codePointEnd = Number(segment.end)
+    if (!Number.isInteger(codePointStart) || !Number.isInteger(codePointEnd) || codePointEnd <= codePointStart) continue
+    const rawFrom = codePointToCodeUnit(snapshot.text, codePointStart)
+    const rawTo = codePointToCodeUnit(snapshot.text, codePointEnd)
+    if (snapshot.text.slice(rawFrom, rawTo) !== segment.text) continue
+    const from = mapRawPosition(snapshot.segments, rawFrom)
+    const to = mapRawPosition(snapshot.segments, rawTo)
+    if (from === null || to === null || from >= to) continue
+    mapped.push({ ...segment, _range: { from, to } })
+  }
+  return mapped
+}
+
+async function requestAiDetection() {
+  if (!editor.value) return
+  if (!appStore.user) {
+    appStore.openAuth('login', requestAiDetection)
+    return
+  }
+  const snapshot = buildDocumentSnapshot(editor.value)
+  if (snapshot.text.length < AI_DETECT_MIN_CHARACTERS || snapshot.text.length > AI_DETECT_MAX_CHARACTERS) return
+
+  resetAiDetection()
+  const sequence = aiDetectionSequence
+  const controller = new AbortController()
+  activeAiDetectionController = controller
+  aiDetection.status = 'loading'
+  aiDetection.snapshotText = snapshot.text
+
+  try {
+    const response = await grammarApi.detectAi(snapshot.text, controller.signal)
+    if (
+      sequence !== aiDetectionSequence ||
+      !editor.value ||
+      buildDocumentSnapshot(editor.value).text !== snapshot.text
+    ) return
+    if (!response?.success || !Array.isArray(response.segments)) {
+      throw new Error(response?.error || 'AI Detector returned an invalid response.')
+    }
+    const segments = mapAiDetectionSegments(response.segments, snapshot)
+    aiDetection.result = { ...response, segments }
+    aiDetection.status = 'success'
+    editor.value.commands.setAiDetectionHighlights(segments.map(segment => segment._range))
+  } catch (error) {
+    if (error.isCanceled || error.name === 'CanceledError' || sequence !== aiDetectionSequence) return
+    aiDetection.status = 'error'
+    aiDetection.error = error.status === 429
+      ? 'AI Detector usage limit reached. Please try again later.'
+      : error.message || 'AI Detector is temporarily unavailable.'
+  } finally {
+    if (activeAiDetectionController === controller) activeAiDetectionController = null
+  }
+}
+
+function focusAiSegment(segment) {
+  if (!editor.value || !segment?._range) return
+  const position = Math.min(segment._range.from, editor.value.state.doc.content.size)
+  const dom = editor.value.view.domAtPos(position).node
+  const element = dom.nodeType === Node.TEXT_NODE ? dom.parentElement : dom
+  element?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+  editor.value.commands.setTextSelection(segment._range)
+  editor.value.commands.focus()
+}
+
 function clearIssues(editorInstance = editor.value) {
   Object.keys(issuesMap).forEach(key => delete issuesMap[key])
   fixAllNotice.value = ''
@@ -2171,6 +2336,7 @@ onBeforeUnmount(() => {
   if (autocompleteTimer) clearTimeout(autocompleteTimer)
   if (activeController) activeController.abort()
   if (activeQualityController) activeQualityController.abort()
+  if (activeAiDetectionController) activeAiDetectionController.abort()
   if (activeAutocompleteController) activeAutocompleteController.abort()
   if (activeRewriteController) activeRewriteController.abort()
   if (decision.resolve) finishDecision(false)
@@ -3364,6 +3530,85 @@ onBeforeUnmount(() => {
   color: #475569;
 }
 
+.ai-detector-panel {
+  flex: 0 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 16px;
+  overflow: hidden;
+  border: 1px solid #d8d7f2;
+  border-radius: 14px;
+  background: var(--surface);
+}
+.ai-detector-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 14px; border-bottom: 1px solid #e7e5f4; }
+.ai-detector-header > div { display: flex; align-items: baseline; gap: 8px; }
+.ai-detector-header h2 { margin: 0; color: var(--text-h); font-size: 15px; }
+.ai-detector-header span { color: #7c3aed; font-size: 12px; font-weight: 800; }
+.ai-detector-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+.ai-detector-toggle svg { width: 16px; height: 16px; transition: transform 180ms ease; }
+.ai-detector-panel:not(.is-collapsed) .ai-detector-toggle svg { transform: rotate(180deg); }
+.ai-detector-panel.is-collapsed .ai-detector-header { border-bottom-color: transparent; }
+.ai-detector-content { display: grid; gap: 11px; padding: 14px; }
+.ai-detector-content > p { margin: 0; color: var(--text); font-size: 12px; line-height: 1.5; }
+.ai-analyze-button { width: 100%; min-height: 38px; border: 0; border-radius: 9px; background: #6d28d9; color: #fff; font-weight: 800; cursor: pointer; }
+.ai-analyze-button:hover:not(:disabled) { background: #5b21b6; }
+.ai-analyze-button:disabled { opacity: .5; cursor: not-allowed; }
+.ai-detector-hint { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.45; }
+.ai-detector-hint--error { color: #b91c1c; }
+.ai-detector-message { display: flex; align-items: center; gap: 9px; margin: 0; padding: 9px; border-radius: 8px; background: var(--accent-bg); color: var(--text); font-size: 12px; }
+.ai-detector-message--error { background: #fef2f2; color: #b91c1c; }
+.ai-detector-result { display: grid; gap: 12px; }
+.ai-confidence-warning { margin: 0; padding: 9px 10px; border-radius: 8px; background: #fff7ed; color: #9a3412; font-size: 11px; line-height: 1.45; }
+.ai-verdict { display: flex; align-items: center; gap: 12px; }
+.ai-score-ring {
+  --ai-score: 0;
+  display: grid;
+  place-items: center;
+  flex: 0 0 64px;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: radial-gradient(circle at center, var(--surface) 53%, transparent 55%), conic-gradient(#7c3aed calc(var(--ai-score) * 1%), #e7e5f4 0);
+}
+.ai-score-ring strong { color: #6d28d9; font-size: 16px; }
+.ai-verdict > div:last-child { display: grid; gap: 4px; min-width: 0; }
+.ai-verdict > div:last-child > strong { color: var(--text-h); font-size: 13px; }
+.ai-verdict > div:last-child > span { color: var(--text); font-size: 11px; line-height: 1.35; }
+.ai-segment-list { display: grid; gap: 7px; }
+.ai-segment-list h3 { margin: 0 0 2px; color: var(--text-h); font-size: 12px; }
+.ai-segment-list button {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: start;
+  gap: 7px;
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #e0dcf0;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ai-segment-list button:hover { border-color: #a78bfa; background: var(--accent-bg); }
+.ai-segment-list button > span { color: #7c3aed; font-size: 10px; font-weight: 800; }
+.ai-segment-list q { display: -webkit-box; overflow: hidden; font-size: 11px; line-height: 1.4; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.ai-detector-disclaimer { margin: 0; color: var(--text-muted); font-size: 10px; line-height: 1.4; }
+
 .quality-panel {
   flex: 0 0 auto;
   width: 100%;
@@ -3521,6 +3766,17 @@ onBeforeUnmount(() => {
 }
 
 :root[data-theme='dark'] .quality-panel-header { border-bottom-color: #4b425c; }
+:root[data-theme='dark'] .ai-detector-panel { border-color: #4b425c; }
+:root[data-theme='dark'] .ai-detector-header { border-bottom-color: #4b425c; }
+:root[data-theme='dark'] .ai-detector-message--error { background: #482a34; color: #fecaca; }
+:root[data-theme='dark'] .ai-confidence-warning { background: #4a3427; color: #fed7aa; }
+:root[data-theme='dark'] .ai-score-ring {
+  background: radial-gradient(circle at center, var(--surface) 53%, transparent 55%), conic-gradient(#c4b5fd calc(var(--ai-score) * 1%), #4a405b 0);
+}
+:root[data-theme='dark'] .ai-score-ring strong,
+:root[data-theme='dark'] .ai-detector-header span,
+:root[data-theme='dark'] .ai-segment-list button > span { color: #c4b5fd; }
+:root[data-theme='dark'] .ai-segment-list button { border-color: #574b68; }
 
 @media (max-width: 700px) {
   .quality-card { gap: 10px; padding: 18px 16px; }
@@ -3919,6 +4175,17 @@ onBeforeUnmount(() => {
 }
 
 /* Grammar Highlights & Underlines */
+.ai-detected-passage {
+  border-radius: 3px;
+  background: rgba(139, 92, 246, .18);
+  box-shadow: inset 0 -2px rgba(124, 58, 237, .45);
+}
+
+:root[data-theme='dark'] .ai-detected-passage {
+  background: rgba(196, 181, 253, .2);
+  box-shadow: inset 0 -2px rgba(196, 181, 253, .6);
+}
+
 .grammar-highlight {
   cursor: pointer;
   position: relative;

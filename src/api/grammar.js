@@ -35,6 +35,13 @@ export const grammarApi = {
     })
   },
 
+  detectAi(text, signal) {
+    return apiClient.post('/ai-detect/', { text }, {
+      signal,
+      timeout: 30000
+    })
+  },
+
   autocomplete(query, sessionId, signal) {
     return apiClient.post('/autocomplete/', {
       query,
