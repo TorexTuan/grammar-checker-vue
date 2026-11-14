@@ -1935,30 +1935,29 @@ function clearIssues(editorInstance = editor.value) {
 }
 
 function buildIssueExcerpt(text, rawFrom, rawTo) {
-  const error = text.slice(rawFrom, rawTo).replace(/\s+/g, ' ')
-  const sideBudget = Math.max(18, Math.floor((80 - Math.min(error.length, 32)) / 2))
-  let start = Math.max(0, rawFrom - sideBudget)
-  let end = Math.min(text.length, rawTo + sideBudget)
-
-  if (start > 0) {
-    const firstBoundary = text.slice(start, rawFrom).search(/\s/)
-    if (firstBoundary >= 0) start += firstBoundary + 1
-  }
-  if (end < text.length) {
-    const after = text.slice(rawTo, end)
-    const lastBoundary = Math.max(after.lastIndexOf(' '), after.lastIndexOf('\n'))
-    if (lastBoundary > 0) end = rawTo + lastBoundary
-  }
-
-  const beforeValue = text.slice(start, rawFrom).replace(/\s+/g, ' ').trim()
-  const afterValue = text.slice(rawTo, end).replace(/\s+/g, ' ').trim()
+  const MAX_EXCERPT_WORDS = 8
+  const words = value => value.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean)
+  const allBeforeWords = words(text.slice(0, rawFrom))
+  const allErrorWords = words(text.slice(rawFrom, rawTo))
+  const allAfterWords = words(text.slice(rawTo))
+  const visibleErrorWords = allErrorWords.slice(0, MAX_EXCERPT_WORDS)
+  const contextBudget = Math.max(0, MAX_EXCERPT_WORDS - visibleErrorWords.length)
+  const beforeBudget = Math.min(allBeforeWords.length, Math.ceil(contextBudget / 2))
+  const afterBudget = Math.min(allAfterWords.length, contextBudget - beforeBudget)
+  const unusedBudget = contextBudget - beforeBudget - afterBudget
+  const extraBefore = Math.min(allBeforeWords.length - beforeBudget, unusedBudget)
+  const finalBeforeBudget = beforeBudget + extraBefore
+  const finalAfterBudget = Math.min(allAfterWords.length, contextBudget - finalBeforeBudget)
+  const beforeValue = finalBeforeBudget ? allBeforeWords.slice(-finalBeforeBudget).join(' ') : ''
+  const afterValue = allAfterWords.slice(0, finalAfterBudget).join(' ')
+  const error = `${visibleErrorWords.join(' ')}${allErrorWords.length > visibleErrorWords.length ? '…' : ''}`
   const hasSpaceBeforeError = rawFrom > 0 && /\s/.test(text[rawFrom - 1])
   const hasSpaceAfterError = rawTo < text.length && /\s/.test(text[rawTo])
 
   return {
-    before: `${start > 0 ? '…' : ''}${beforeValue}${beforeValue && hasSpaceBeforeError ? ' ' : ''}`,
+    before: `${allBeforeWords.length > finalBeforeBudget ? '…' : ''}${beforeValue}${beforeValue && hasSpaceBeforeError ? ' ' : ''}`,
     error,
-    after: `${afterValue && hasSpaceAfterError ? ' ' : ''}${afterValue}${end < text.length ? '…' : ''}`,
+    after: `${afterValue && hasSpaceAfterError ? ' ' : ''}${afterValue}${allAfterWords.length > finalAfterBudget ? '…' : ''}`,
   }
 }
 
@@ -2459,8 +2458,6 @@ function handleAcceptAll() {
     acceptAllNotice.value = `Accepted 0 issues; skipped ${skipped} outdated or conflicting suggestion(s).`
     return
   }
-
-  selected.forEach(issue => recordIssueForPractice(issue))
 
   const tr = state.tr
   for (const issue of [...selected].reverse()) {
@@ -3889,9 +3886,10 @@ onBeforeUnmount(() => {
 
 .issue-card-correction {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 7px;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  column-gap: 7px;
+  row-gap: 8px;
   margin-bottom: 10px;
   color: #475569;
   font-size: 12px;
@@ -3899,6 +3897,7 @@ onBeforeUnmount(() => {
 }
 
 .issue-card-context {
+  grid-column: 1 / -1;
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -3914,20 +3913,23 @@ onBeforeUnmount(() => {
 }
 
 .issue-card-arrow {
+  grid-column: 1;
   color: #7c3aed;
   font-size: 15px;
   font-weight: 800;
 }
 
 .issue-card-suggestion {
-  max-width: 110px;
-  overflow: hidden;
+  grid-column: 2;
+  justify-self: start;
+  max-width: 100%;
+  box-sizing: border-box;
   padding: 3px 7px;
   border-radius: 6px;
   background: #dcfce7;
   color: #047857;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .issue-card-explanation {
