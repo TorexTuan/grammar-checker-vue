@@ -228,7 +228,19 @@
           <strong>Writing analysis</strong>
           <button type="button" class="issues-drawer-close" aria-label="Close writing analysis" @click="closeIssuesDrawer">&times;</button>
         </div>
-        <section class="quality-panel" :class="{ 'is-collapsed': qualityCollapsed }" aria-labelledby="quality-panel-title">
+        <div class="analysis-tabs" role="tablist" aria-label="Writing analysis sections">
+          <button id="analysis-tab-grammar" type="button" role="tab" aria-controls="analysis-panel-grammar" :aria-selected="activeAnalysisTab === 'grammar'" :tabindex="activeAnalysisTab === 'grammar' ? 0 : -1" @click="selectAnalysisTab('grammar')" @keydown="handleAnalysisTabKeydown">
+            Grammar
+            <span v-if="issueList.length" class="analysis-tab-count" aria-hidden="true">{{ issueList.length > 99 ? '99+' : issueList.length }}</span>
+          </button>
+          <button id="analysis-tab-quality" type="button" role="tab" aria-controls="analysis-panel-quality" :aria-selected="activeAnalysisTab === 'quality'" :tabindex="activeAnalysisTab === 'quality' ? 0 : -1" @click="selectAnalysisTab('quality')" @keydown="handleAnalysisTabKeydown">
+            Writing Quality
+          </button>
+          <button id="analysis-tab-ai" type="button" role="tab" aria-controls="analysis-panel-ai" :aria-selected="activeAnalysisTab === 'ai'" :tabindex="activeAnalysisTab === 'ai' ? 0 : -1" @click="selectAnalysisTab('ai')" @keydown="handleAnalysisTabKeydown">
+            AI Detector
+          </button>
+        </div>
+        <section id="analysis-panel-quality" class="quality-panel analysis-tab-panel" :class="{ 'is-collapsed': qualityCollapsed, 'is-active': activeAnalysisTab === 'quality' }" role="tabpanel" aria-labelledby="analysis-tab-quality">
           <div class="quality-panel-header">
             <div>
               <h2 id="quality-panel-title">Writing quality</h2>
@@ -238,21 +250,35 @@
               <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 8 5 5 5-5" /></svg>
             </button>
           </div>
-          <div v-show="!qualityCollapsed" id="quality-panel-content" class="quality-card" :aria-busy="qualityStatus === 'loading'">
-          <div class="quality-chart" :style="{ '--quality-score': qualityAssessment?.overall_score || 0 }">
-            <div class="quality-chart__center">
-              <strong>{{ qualityAssessment?.overall_score ?? '–' }}</strong><span>/100</span>
+          <div id="quality-panel-content" class="quality-card" :aria-busy="qualityStatus === 'loading'">
+            <template v-if="qualityStatus === 'success' && qualityAssessment">
+              <div class="quality-chart" :style="{ '--quality-score': qualityAssessment.overall_score || 0 }">
+                <div class="quality-chart__center">
+                  <strong>{{ qualityAssessment.overall_score }}</strong><span>/100</span>
+                </div>
+              </div>
+              <div class="quality-bars">
+                <div v-for="criterion in qualityCriteria" :key="criterion.key" class="quality-bar-row" :class="`quality-bar-row--${criterion.key}`">
+                  <div><span>{{ criterion.label }}</span><strong>{{ criterion.score ?? '–' }}</strong></div>
+                  <div class="quality-meter" aria-hidden="true"><span :style="{ width: `${criterion.score || 0}%` }"></span></div>
+                </div>
+              </div>
+            </template>
+            <div v-else class="quality-state" :class="{ 'quality-state--error': qualityStatus === 'error' }">
+              <span v-if="qualityStatus === 'loading'" class="rewrite-spinner" aria-hidden="true"></span>
+              <p v-if="documentWordCount < QUALITY_MIN_WORDS">Add {{ QUALITY_MIN_WORDS - documentWordCount }} more word(s) to calculate writing quality.</p>
+              <p v-else-if="documentCharacterCount > QUALITY_MAX_CHARACTERS">Writing Quality supports up to {{ QUALITY_MAX_CHARACTERS.toLocaleString() }} characters.</p>
+              <p v-else-if="qualityStatus === 'scheduled'">Writing Quality will update after you stop typing.</p>
+              <p v-else-if="qualityStatus === 'loading'">Analyzing writing quality…</p>
+              <template v-else-if="qualityStatus === 'error'">
+                <p>{{ qualityError }}</p>
+                <button type="button" @click="retryQualityAssessment">Try again</button>
+              </template>
+              <p v-else>Writing Quality is ready to analyze this text.</p>
             </div>
-          </div>
-          <div class="quality-bars">
-            <div v-for="criterion in qualityCriteria" :key="criterion.key" class="quality-bar-row" :class="`quality-bar-row--${criterion.key}`">
-              <div><span>{{ criterion.label }}</span><strong>{{ criterion.score ?? '–' }}</strong></div>
-              <div class="quality-meter" aria-hidden="true"><span :style="{ width: `${criterion.score || 0}%` }"></span></div>
-            </div>
-          </div>
           </div>
         </section>
-        <section class="ai-detector-panel" :class="{ 'is-collapsed': aiDetectorCollapsed }" aria-labelledby="ai-detector-title">
+        <section id="analysis-panel-ai" class="ai-detector-panel analysis-tab-panel" :class="{ 'is-collapsed': aiDetectorCollapsed, 'is-active': activeAnalysisTab === 'ai' }" role="tabpanel" aria-labelledby="analysis-tab-ai">
           <div class="ai-detector-header">
             <div>
               <h2 id="ai-detector-title">AI Detector</h2>
@@ -262,7 +288,7 @@
               <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 8 5 5 5-5" /></svg>
             </button>
           </div>
-          <div v-show="!aiDetectorCollapsed" id="ai-detector-content" class="ai-detector-content" :aria-busy="aiDetection.status === 'loading'">
+          <div id="ai-detector-content" class="ai-detector-content" :aria-busy="aiDetection.status === 'loading'">
             <template v-if="!appStore.user">
               <p>Sign in to analyze whether this text shows patterns associated with AI writing.</p>
               <button type="button" class="ai-analyze-button" @click="requestAiDetection">Sign in to analyze</button>
@@ -309,29 +335,31 @@
             </template>
           </div>
         </section>
-        <div class="sidebar-header">
-          <div>
-            <h2>Grammar issues</h2>
-            <p>{{ issueList.length }} current issue(s)</p>
+        <section id="analysis-panel-grammar" class="grammar-panel analysis-tab-panel" :class="{ 'is-active': activeAnalysisTab === 'grammar' }" role="tabpanel" aria-labelledby="analysis-tab-grammar">
+          <div class="sidebar-header">
+            <div>
+              <h2>Grammar issues</h2>
+              <p>{{ issueList.length }} current issue(s)</p>
+            </div>
           </div>
-        </div>
-        <button type="button" class="fix-all-button" :disabled="issueList.length === 0" @click="handleFixAll">Fix all</button>
-        <p v-if="fixAllNotice" class="fix-all-notice" role="status">{{ fixAllNotice }}</p>
-        <p v-if="issueList.length === 0" class="empty-issues">No issues to display.</p>
-        <div v-else class="issue-cards">
-          <article v-for="issue in issueList" :key="issue.id" class="issue-card">
-            <div class="issue-card-top">
-              <span class="issue-card-category">{{ issue.category }}</span>
-              <h3>{{ issue.length === 0 ? 'Missing text' : issue.original }}</h3>
-            </div>
-            <p class="issue-card-replacement">Suggestion: <strong>{{ issue.replacement === '' ? 'Delete' : issue.replacement }}</strong></p>
-            <p class="issue-card-explanation">{{ issue.explanation }}</p>
-            <div class="issue-card-actions">
-              <button type="button" class="card-accept" @click="handleAccept(issue)">Accept</button>
-              <button type="button" class="card-ignore" @click="handleIgnore(issue)">Ignore</button>
-            </div>
-          </article>
-        </div>
+          <button type="button" class="fix-all-button" :disabled="issueList.length === 0" @click="handleFixAll">Fix all</button>
+          <p v-if="fixAllNotice" class="fix-all-notice" role="status">{{ fixAllNotice }}</p>
+          <p v-if="issueList.length === 0" class="empty-issues">No issues to display.</p>
+          <div v-else class="issue-cards">
+            <article v-for="issue in issueList" :key="issue.id" class="issue-card">
+              <div class="issue-card-top">
+                <span class="issue-card-category">{{ issue.category }}</span>
+                <h3>{{ issue.length === 0 ? 'Missing text' : issue.original }}</h3>
+              </div>
+              <p class="issue-card-replacement">Suggestion: <strong>{{ issue.replacement === '' ? 'Delete' : issue.replacement }}</strong></p>
+              <p class="issue-card-explanation">{{ issue.explanation }}</p>
+              <div class="issue-card-actions">
+                <button type="button" class="card-accept" @click="handleAccept(issue)">Accept</button>
+                <button type="button" class="card-ignore" @click="handleIgnore(issue)">Ignore</button>
+              </div>
+            </article>
+          </div>
+        </section>
       </aside>
     </div>
 
@@ -499,10 +527,12 @@ const activeVersion = ref(null)
 const saveStatus = ref(savedSession ? 'unsaved' : 'saved')
 const drawerOpen = ref(false)
 const issuesDrawerOpen = ref(false)
+const activeAnalysisTab = ref('grammar')
 const qualityCollapsed = ref(false)
 const aiDetectorCollapsed = ref(false)
 const qualityStatus = ref('idle')
 const qualityAssessment = ref(null)
+const qualityError = ref('')
 const documentWordCount = ref(0)
 const documentCharacterCount = ref(0)
 const aiDetection = reactive({ status: 'idle', result: null, error: '', snapshotText: '' })
@@ -803,13 +833,14 @@ const editor = useEditor({
   ],
   onCreate: ({ editor: editorInstance }) => {
     lastObservedText = buildDocumentSnapshot(editorInstance).text
-    lastQualityObservedText = lastObservedText
+    lastQualityObservedText = null
     updateQualityEligibility(lastObservedText)
     hasCheckableText.value = lastObservedText.trim().length >= 3
     hasDocumentContent.value = lastObservedText.trim().length > 0
     validateComments(editorInstance.state.doc)
     syncToolbarState(editorInstance)
     scheduleCommentLayout()
+    scheduleQualityAssessment(editorInstance)
   },
   onTransaction: ({ editor: editorInstance, transaction }) => {
     syncToolbarState(editorInstance)
@@ -1114,12 +1145,13 @@ function applyDocumentSession(session, { dirty = false } = {}) {
   if (pointerKey) localStorage.setItem(pointerKey, activeDocumentId.value || 'new')
   editor.value.commands.setContent(session.content || session.doc || createEmptyDocument())
   lastObservedText = buildDocumentSnapshot(editor.value).text
-  lastQualityObservedText = lastObservedText
+  lastQualityObservedText = null
   invalidateQualityAssessment()
   updateQualityEligibility(lastObservedText)
   hasCheckableText.value = lastObservedText.trim().length >= 3
   hasDocumentContent.value = lastObservedText.trim().length > 0
   saveStatus.value = dirty ? 'unsaved' : 'saved'
+  scheduleQualityAssessment(editor.value)
   nextTick(() => {
     loadingSession = false
     validateComments(editor.value.state.doc)
@@ -1861,11 +1893,33 @@ function applyIssuesToDocument(issues, snapshot) {
 }
 
 function openIssuesDrawer() {
+  activeAnalysisTab.value = 'grammar'
   issuesDrawerOpen.value = true
 }
 
 function closeIssuesDrawer() {
   issuesDrawerOpen.value = false
+}
+
+const ANALYSIS_TAB_ORDER = ['grammar', 'quality', 'ai']
+
+function selectAnalysisTab(tab) {
+  if (ANALYSIS_TAB_ORDER.includes(tab)) activeAnalysisTab.value = tab
+}
+
+function handleAnalysisTabKeydown(event) {
+  const currentIndex = ANALYSIS_TAB_ORDER.indexOf(activeAnalysisTab.value)
+  let nextIndex = currentIndex
+
+  if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % ANALYSIS_TAB_ORDER.length
+  else if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + ANALYSIS_TAB_ORDER.length) % ANALYSIS_TAB_ORDER.length
+  else if (event.key === 'Home') nextIndex = 0
+  else if (event.key === 'End') nextIndex = ANALYSIS_TAB_ORDER.length - 1
+  else return
+
+  event.preventDefault()
+  activeAnalysisTab.value = ANALYSIS_TAB_ORDER[nextIndex]
+  nextTick(() => document.getElementById(`analysis-tab-${activeAnalysisTab.value}`)?.focus())
 }
 
 function invalidateQualityAssessment() {
@@ -1876,6 +1930,7 @@ function invalidateQualityAssessment() {
   activeQualityController = null
   qualityAssessment.value = null
   qualityStatus.value = 'idle'
+  qualityError.value = ''
 }
 
 function scheduleQualityAssessment(editorInstance) {
@@ -1886,6 +1941,7 @@ function scheduleQualityAssessment(editorInstance) {
   if (!canAssessQuality.value) return
 
   const sequence = qualityRequestSequence
+  qualityStatus.value = 'scheduled'
   qualityDebounceTimer = setTimeout(() => {
     qualityDebounceTimer = null
     runQualityAssessment(sequence, snapshot.text)
@@ -1915,9 +1971,19 @@ async function runQualityAssessment(sequence, expectedText) {
     if (error.isCanceled || error.name === 'CanceledError' || sequence !== qualityRequestSequence) return
     console.error('Failed to assess writing quality:', error)
     qualityStatus.value = 'error'
+    qualityError.value = error.message || 'Writing Quality is temporarily unavailable.'
   } finally {
     if (activeQualityController === controller) activeQualityController = null
   }
+}
+
+function retryQualityAssessment() {
+  if (!editor.value || !canAssessQuality.value) return
+  const snapshot = buildDocumentSnapshot(editor.value)
+  lastQualityObservedText = snapshot.text
+  invalidateQualityAssessment()
+  const sequence = qualityRequestSequence
+  runQualityAssessment(sequence, snapshot.text)
 }
 
 function scheduleGrammarCheck(editorInstance) {
@@ -3413,6 +3479,30 @@ onBeforeUnmount(() => {
   display: none;
 }
 
+.analysis-tabs {
+  display: none;
+}
+
+.analysis-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #ede9fe;
+  color: #6d28d9;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.grammar-panel {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .sidebar-header {
   display: flex;
   justify-content: space-between;
@@ -3469,6 +3559,83 @@ onBeforeUnmount(() => {
 
 .issue-cards > * {
   flex: 0 0 auto;
+}
+
+@media (min-width: 901px) {
+  .analysis-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    flex: 0 0 auto;
+    gap: 4px;
+    margin: -4px -4px 14px;
+    padding: 4px;
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    background: var(--accent-bg);
+  }
+
+  .analysis-tabs button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-width: 0;
+    min-height: 38px;
+    padding: 7px 5px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 1.15;
+    cursor: pointer;
+  }
+
+  .analysis-tabs button:hover {
+    background: var(--accent-bg);
+    color: var(--text-h);
+  }
+
+  .analysis-tabs button[aria-selected='true'] {
+    background: var(--surface);
+    box-shadow: 0 1px 5px rgba(56, 34, 77, .12);
+    color: var(--brand-color);
+  }
+
+  .analysis-tabs button:focus-visible {
+    outline: 2px solid #8b5cf6;
+    outline-offset: 1px;
+  }
+
+  .analysis-tab-panel {
+    display: none;
+  }
+
+  .analysis-tab-panel.is-active {
+    display: block;
+    flex: 1 1 auto;
+    min-height: 0;
+    margin-bottom: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+
+  .grammar-panel {
+    padding-right: 4px;
+  }
+
+  .issue-cards {
+    overflow: visible;
+    padding-right: 0;
+  }
+
+  :root[data-theme='dark'] .analysis-tabs button[aria-selected='true'] {
+    box-shadow: 0 1px 6px rgba(0, 0, 0, .28);
+  }
 }
 
 .issue-card {
@@ -3698,6 +3865,45 @@ onBeforeUnmount(() => {
   background: linear-gradient(145deg, #fcf8ff, #f3ebfa);
 }
 
+.quality-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  color: var(--quality-label);
+  text-align: center;
+}
+
+.quality-state p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.quality-state--error {
+  color: #b91c1c;
+}
+
+.quality-state button {
+  min-height: 36px;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 8px;
+  background: #6d28d9;
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.quality-state button:hover {
+  background: #5b21b6;
+}
+
 .quality-chart {
   --quality-score: 0;
   position: relative;
@@ -3760,6 +3966,8 @@ onBeforeUnmount(() => {
   background: linear-gradient(145deg, #302a3c, #292631);
 }
 
+:root[data-theme='dark'] .quality-state--error { color: #fecaca; }
+
 :root[data-theme='dark'] .quality-panel {
   border-color: #4b425c;
   background: var(--surface);
@@ -3777,6 +3985,26 @@ onBeforeUnmount(() => {
 :root[data-theme='dark'] .ai-detector-header span,
 :root[data-theme='dark'] .ai-segment-list button > span { color: #c4b5fd; }
 :root[data-theme='dark'] .ai-segment-list button { border-color: #574b68; }
+
+@media (min-width: 901px) {
+  .quality-panel-toggle,
+  .ai-detector-toggle {
+    display: none;
+  }
+
+  .quality-panel.is-collapsed .quality-panel-header {
+    border-bottom-color: #e7dff0;
+  }
+
+  .ai-detector-panel.is-collapsed .ai-detector-header {
+    border-bottom-color: #e7e5f4;
+  }
+
+  :root[data-theme='dark'] .quality-panel.is-collapsed .quality-panel-header,
+  :root[data-theme='dark'] .ai-detector-panel.is-collapsed .ai-detector-header {
+    border-bottom-color: #4b425c;
+  }
+}
 
 @media (max-width: 700px) {
   .quality-card { gap: 10px; padding: 18px 16px; }
@@ -3803,7 +4031,13 @@ onBeforeUnmount(() => {
   .issues-sidebar {
     position: static;
     max-height: calc(100vh - 32px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
+  .quality-panel.is-collapsed .quality-card,
+  .ai-detector-panel.is-collapsed .ai-detector-content { display: none; }
+  .issue-cards { overflow: visible; padding-right: 0; }
 }
 
 @media (max-width: 1200px) {
