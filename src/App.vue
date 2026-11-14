@@ -5,6 +5,10 @@
         <h1>Grammar Checker</h1>
       </div>
       <nav>
+        <div class="main-nav-links" aria-label="Main navigation">
+          <router-link to="/">Editor</router-link>
+          <router-link to="/practice">Practice</router-link>
+        </div>
         <button v-if="!store.user" type="button" class="account-button" @click="store.openAuth('login')">Sign in</button>
         <div v-else class="account-menu">
           <span class="account-email" :title="store.user.email">{{ store.user.email }}</span>
@@ -18,7 +22,11 @@
       </nav>
     </header>
     <main class="main-content">
-      <router-view />
+      <router-view v-slot="{ Component }">
+        <KeepAlive include="HomeView">
+          <component :is="Component" />
+        </KeepAlive>
+      </router-view>
     </main>
     <AuthModal />
     <Teleport to="body">
@@ -196,6 +204,27 @@ nav a {
 
 nav a.router-link-exact-active {
   color: var(--brand-color);
+}
+
+.main-nav-links {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.main-nav-links a {
+  padding: 6px 10px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.main-nav-links a.router-link-exact-active {
+  background: var(--accent-bg);
 }
 
 .account-menu {
@@ -397,6 +426,7 @@ nav a.router-link-exact-active {
   .logo { gap: 7px; }
   .logo h1 { font-size: .95rem; }
   nav { flex: 0 0 auto; gap: 6px; }
+  .main-nav-links a { padding: 6px 7px; font-size: 10px; }
   .account-email { display: none; }
   .account-button { height: 32px; padding: 0 8px; font-size: 11px; }
   .theme-toggle { justify-content: center; width: 32px; height: 32px; box-sizing: border-box; padding: 0; }

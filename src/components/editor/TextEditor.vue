@@ -294,14 +294,17 @@
               <button type="button" class="ai-analyze-button" @click="requestAiDetection">Sign in to analyze</button>
             </template>
             <template v-else>
-              <p v-if="documentCharacterCount < AI_DETECT_MIN_CHARACTERS" class="ai-detector-hint">
-                Add {{ AI_DETECT_MIN_CHARACTERS - documentCharacterCount }} more character(s) to analyze this text.
+              <p class="ai-detector-scope-hint">
+                {{ aiSelection.active ? `Selected passage: ${aiSelection.characters.toLocaleString()} characters` : 'No text selected — the full document will be analyzed.' }}
               </p>
-              <p v-else-if="documentCharacterCount > AI_DETECT_MAX_CHARACTERS" class="ai-detector-hint ai-detector-hint--error">
+              <p v-if="aiTargetCharacterCount < AI_DETECT_MIN_CHARACTERS" class="ai-detector-hint">
+                Add {{ AI_DETECT_MIN_CHARACTERS - aiTargetCharacterCount }} more character(s) to {{ aiSelection.active ? 'the selection' : 'the document' }}.
+              </p>
+              <p v-else-if="aiTargetCharacterCount > AI_DETECT_MAX_CHARACTERS" class="ai-detector-hint ai-detector-hint--error">
                 AI Detector supports up to {{ AI_DETECT_MAX_CHARACTERS.toLocaleString() }} characters.
               </p>
               <button type="button" class="ai-analyze-button" :disabled="!canRunAiDetection || aiDetection.status === 'loading'" @click="requestAiDetection">
-                {{ aiDetection.status === 'loading' ? 'Analyzing…' : aiDetection.status === 'success' ? 'Analyze again' : 'Analyze text' }}
+                {{ aiDetection.status === 'loading' ? 'Analyzing…' : aiDetection.status === 'success' ? 'Analyze again' : aiSelection.active ? 'Analyze selection' : 'Analyze document' }}
               </button>
 
               <div v-if="aiDetection.status === 'loading'" class="ai-detector-message" role="status">
@@ -312,6 +315,7 @@
               <p v-else-if="aiDetection.status === 'stale'" class="ai-detector-message" role="status">Text changed — analyze again.</p>
 
               <div v-else-if="aiDetection.status === 'success' && aiDetection.result" class="ai-detector-result">
+                <p class="ai-detector-scope-result">Analyzed {{ aiDetection.scope === 'selection' ? 'the selected passage' : 'the full document' }}.</p>
                 <p v-if="aiDetection.result.low_confidence" class="ai-confidence-warning" role="status">
                   Confidence is low for this result. Add more continuous prose and review it carefully.
                 </p>
@@ -341,21 +345,36 @@
               <h2>Grammar issues</h2>
               <p>{{ issueList.length }} current issue(s)</p>
             </div>
+            <button type="button" class="accept-all-button" :disabled="issueList.length === 0" @click="handleAcceptAll">Accept All</button>
           </div>
-          <button type="button" class="fix-all-button" :disabled="issueList.length === 0" @click="handleFixAll">Fix all</button>
-          <p v-if="fixAllNotice" class="fix-all-notice" role="status">{{ fixAllNotice }}</p>
+          <p v-if="acceptAllNotice" class="accept-all-notice" role="status">{{ acceptAllNotice }}</p>
           <p v-if="issueList.length === 0" class="empty-issues">No issues to display.</p>
           <div v-else class="issue-cards">
-            <article v-for="issue in issueList" :key="issue.id" class="issue-card">
+            <article
+              v-for="issue in issueList"
+              :key="issue.id"
+              class="issue-card"
+              :class="{ 'is-active': activeIssueId === issue.id, 'is-locatable': !mobileIssuesMode }"
+              :tabindex="mobileIssuesMode ? -1 : 0"
+              :aria-label="mobileIssuesMode ? undefined : `Locate issue: ${issue.original || 'missing text'}`"
+              @click="focusIssueFromCard(issue)"
+              @keydown.enter.prevent="focusIssueFromCard(issue)"
+              @keydown.space.prevent="focusIssueFromCard(issue)"
+            >
               <div class="issue-card-top">
                 <span class="issue-card-category">{{ issue.category }}</span>
-                <h3>{{ issue.length === 0 ? 'Missing text' : issue.original }}</h3>
               </div>
-              <p class="issue-card-replacement">Suggestion: <strong>{{ issue.replacement === '' ? 'Delete' : issue.replacement }}</strong></p>
+              <div class="issue-card-correction" aria-label="Text and suggested correction">
+                <span class="issue-card-context">
+                  <span>{{ issue._excerpt.before }}</span><span class="issue-card-error">{{ issue._excerpt.error || 'Missing text' }}</span><span>{{ issue._excerpt.after }}</span>
+                </span>
+                <span class="issue-card-arrow" aria-hidden="true">→</span>
+                <strong class="issue-card-suggestion">{{ issue.replacement === '' ? 'Delete' : issue.replacement }}</strong>
+              </div>
               <p class="issue-card-explanation">{{ issue.explanation }}</p>
               <div class="issue-card-actions">
-                <button type="button" class="card-accept" @click="handleAccept(issue)">Accept</button>
-                <button type="button" class="card-ignore" @click="handleIgnore(issue)">Ignore</button>
+                <button type="button" class="card-accept" @click.stop="handleAccept(issue)" @keydown.stop>Accept</button>
+                <button type="button" class="card-ignore" @click.stop="handleIgnore(issue)" @keydown.stop>Ignore</button>
               </div>
             </article>
           </div>
@@ -457,7 +476,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount, onActivated, onDeactivated, watch } from 'vue'
 import { useEditor, EditorContent } from '@tiptap/vue-3'
 import { BubbleMenu } from '@tiptap/vue-3/menus'
 import { Fragment } from '@tiptap/pm/model'
@@ -520,13 +539,17 @@ function documentContainsText(node, expectedText) {
   return Array.isArray(node.content) && node.content.some(child => documentContainsText(child, expectedText))
 }
 
-const savedSession = loadSavedSession(GUEST_DRAFT_KEY, true)
+// A signed-in editor restores its account-scoped draft below. Loading the guest
+// draft here would prevent that restoration and could expose a guest draft in
+// the wrong account session.
+const savedSession = appStore.user ? null : loadSavedSession(GUEST_DRAFT_KEY, true)
 const documentTitle = ref(savedSession?.title || 'Untitled document')
 const activeDocumentId = ref(null)
 const activeVersion = ref(null)
 const saveStatus = ref(savedSession ? 'unsaved' : 'saved')
 const drawerOpen = ref(false)
 const issuesDrawerOpen = ref(false)
+const mobileIssuesMode = ref(window.innerWidth <= 700)
 const activeAnalysisTab = ref('grammar')
 const qualityCollapsed = ref(false)
 const aiDetectorCollapsed = ref(false)
@@ -535,7 +558,8 @@ const qualityAssessment = ref(null)
 const qualityError = ref('')
 const documentWordCount = ref(0)
 const documentCharacterCount = ref(0)
-const aiDetection = reactive({ status: 'idle', result: null, error: '', snapshotText: '' })
+const aiDetection = reactive({ status: 'idle', result: null, error: '', snapshotText: '', scope: 'document' })
+const aiSelection = reactive({ active: false, characters: 0 })
 const conflictDocument = ref(null)
 const decision = reactive({ visible: false, resolve: null, mode: 'unsaved' })
 const titleDialog = reactive({ visible: false, title: '', continueDecision: false })
@@ -548,7 +572,8 @@ const statusMessage = ref('Grammar Engine Ready')
 const statusKind = ref('ready')
 const hasCheckableText = ref(false)
 const hasDocumentContent = ref(false)
-const fixAllNotice = ref('')
+const acceptAllNotice = ref('')
+const activeIssueId = ref(null)
 const issueList = computed(() => Object.values(issuesMap).sort((a, b) => a._range.from - b._range.from))
 const QUALITY_MIN_WORDS = 20
 const QUALITY_MAX_CHARACTERS = 10000
@@ -560,8 +585,11 @@ const canAssessQuality = computed(() => (
 ))
 const canRunAiDetection = computed(() => (
   !!appStore.user &&
-  documentCharacterCount.value >= AI_DETECT_MIN_CHARACTERS &&
-  documentCharacterCount.value <= AI_DETECT_MAX_CHARACTERS
+  aiTargetCharacterCount.value >= AI_DETECT_MIN_CHARACTERS &&
+  aiTargetCharacterCount.value <= AI_DETECT_MAX_CHARACTERS
+))
+const aiTargetCharacterCount = computed(() => (
+  aiSelection.active ? aiSelection.characters : documentCharacterCount.value
 ))
 const aiScorePercent = computed(() => Math.round((aiDetection.result?.score || 0) * 100))
 const aiFractionPercent = computed(() => Math.round((aiDetection.result?.ai_fraction || 0) * 100))
@@ -657,6 +685,8 @@ let saveTimer = null
 let layoutFrame = null
 let resizeObserver = null
 let loadingSession = false
+let practiceBaselinePending = false
+let practiceBaselineFingerprints = new Set()
 let draftOriginKey = GUEST_DRAFT_KEY
 let userHasEdited = !!savedSession
 
@@ -678,6 +708,14 @@ function updateQualityEligibility(text) {
   documentCharacterCount.value = text.length
 }
 
+function updateAiSelection(editorInstance) {
+  if (!editorInstance) return
+  const { from, to, empty } = editorInstance.state.selection
+  const selectedText = empty ? '' : editorInstance.state.doc.textBetween(from, to, BLOCK_SEPARATOR)
+  aiSelection.active = !empty && selectedText.length > 0
+  aiSelection.characters = aiSelection.active ? selectedText.length : 0
+}
+
 function resetAiDetection(status = 'idle') {
   aiDetectionSequence += 1
   if (activeAiDetectionController) activeAiDetectionController.abort()
@@ -686,6 +724,7 @@ function resetAiDetection(status = 'idle') {
   aiDetection.result = null
   aiDetection.error = ''
   aiDetection.snapshotText = ''
+  aiDetection.scope = 'document'
   editor.value?.commands.clearAiDetectionHighlights()
 }
 
@@ -888,7 +927,10 @@ const editor = useEditor({
     scheduleGrammarCheck(editorInstance)
     if (shouldScheduleAutocomplete) scheduleAutocomplete(editorInstance)
   },
-  onSelectionUpdate: () => resetAutocomplete(),
+  onSelectionUpdate: ({ editor: editorInstance }) => {
+    resetAutocomplete()
+    updateAiSelection(editorInstance)
+  },
   onBlur: () => resetAutocomplete(),
   editorProps: {
     attributes: {
@@ -1009,6 +1051,20 @@ function currentDraftKey(documentId = activeDocumentId.value) {
 
 function activePointerKey(userId = appStore.user?.id) {
   return userId ? `grammar-checker-active-document:user:${userId}` : null
+}
+
+async function restoreAccountSession(user = appStore.user) {
+  if (!user || userHasEdited || !editor.value) return
+  try {
+    const pointer = localStorage.getItem(activePointerKey(user.id))
+    if (!pointer) return
+    const documentId = pointer === 'new' ? null : pointer
+    const local = loadSavedSession(`grammar-checker-draft:user:${user.id}:document:${documentId || 'new'}`)
+    if (local) applyDocumentSession(local, { dirty: true })
+    else if (documentId) applyDocumentSession(await appStore.getDocument(documentId))
+  } catch {
+    // Keep the current editor content if account restoration is unavailable.
+  }
 }
 
 function saveSession(editorInstance = editor.value) {
@@ -1138,6 +1194,8 @@ function applyDocumentSession(session, { dirty = false } = {}) {
   comments.value = Array.isArray(session.comments) ? session.comments : []
   documentTitle.value = session.title || 'Untitled document'
   activeDocumentId.value = session.id || session.documentId || null
+  practiceBaselineFingerprints = new Set()
+  practiceBaselinePending = !!activeDocumentId.value
   activeVersion.value = session.version || session.baseVersion || null
   draftOriginKey = currentDraftKey(activeDocumentId.value)
   userHasEdited = dirty
@@ -1157,6 +1215,7 @@ function applyDocumentSession(session, { dirty = false } = {}) {
     validateComments(editor.value.state.doc)
     refreshCommentDecorations(false)
     scheduleCommentLayout()
+    if (practiceBaselinePending && hasCheckableText.value) checkAgain()
   })
 }
 
@@ -1779,13 +1838,45 @@ function mapAiDetectionSegments(segments, snapshot) {
   return mapped
 }
 
+function buildAiDetectionSnapshot(editorInstance) {
+  const documentSnapshot = buildDocumentSnapshot(editorInstance)
+  const { from, to, empty } = editorInstance.state.selection
+  if (empty) {
+    return { ...documentSnapshot, documentText: documentSnapshot.text, scope: 'document' }
+  }
+
+  const rawFrom = rawPositionFromDocument(documentSnapshot, from)
+  const rawTo = rawPositionFromDocument(documentSnapshot, to)
+  if (rawTo <= rawFrom) {
+    return { ...documentSnapshot, documentText: documentSnapshot.text, scope: 'document' }
+  }
+
+  const segments = documentSnapshot.segments.flatMap(segment => {
+    const clippedFrom = Math.max(segment.rawFrom, rawFrom)
+    const clippedTo = Math.min(segment.rawTo, rawTo)
+    if (clippedTo <= clippedFrom) return []
+    return [{
+      rawFrom: clippedFrom - rawFrom,
+      rawTo: clippedTo - rawFrom,
+      pmFrom: segment.pmFrom + (clippedFrom - segment.rawFrom),
+      pmTo: segment.pmFrom + (clippedTo - segment.rawFrom),
+    }]
+  })
+  return {
+    text: documentSnapshot.text.slice(rawFrom, rawTo),
+    segments,
+    documentText: documentSnapshot.text,
+    scope: 'selection',
+  }
+}
+
 async function requestAiDetection() {
   if (!editor.value) return
   if (!appStore.user) {
     appStore.openAuth('login', requestAiDetection)
     return
   }
-  const snapshot = buildDocumentSnapshot(editor.value)
+  const snapshot = buildAiDetectionSnapshot(editor.value)
   if (snapshot.text.length < AI_DETECT_MIN_CHARACTERS || snapshot.text.length > AI_DETECT_MAX_CHARACTERS) return
 
   resetAiDetection()
@@ -1794,13 +1885,14 @@ async function requestAiDetection() {
   activeAiDetectionController = controller
   aiDetection.status = 'loading'
   aiDetection.snapshotText = snapshot.text
+  aiDetection.scope = snapshot.scope
 
   try {
     const response = await grammarApi.detectAi(snapshot.text, controller.signal)
     if (
       sequence !== aiDetectionSequence ||
       !editor.value ||
-      buildDocumentSnapshot(editor.value).text !== snapshot.text
+      buildDocumentSnapshot(editor.value).text !== snapshot.documentText
     ) return
     if (!response?.success || !Array.isArray(response.segments)) {
       throw new Error(response?.error || 'AI Detector returned an invalid response.')
@@ -1832,7 +1924,8 @@ function focusAiSegment(segment) {
 
 function clearIssues(editorInstance = editor.value) {
   Object.keys(issuesMap).forEach(key => delete issuesMap[key])
-  fixAllNotice.value = ''
+  acceptAllNotice.value = ''
+  activeIssueId.value = null
   closePopover()
   if (!editorInstance) return
   const { state, view } = editorInstance
@@ -1841,9 +1934,62 @@ function clearIssues(editorInstance = editor.value) {
   if (tr.docChanged) view.dispatch(tr)
 }
 
+function buildIssueExcerpt(text, rawFrom, rawTo) {
+  const error = text.slice(rawFrom, rawTo).replace(/\s+/g, ' ')
+  const sideBudget = Math.max(18, Math.floor((80 - Math.min(error.length, 32)) / 2))
+  let start = Math.max(0, rawFrom - sideBudget)
+  let end = Math.min(text.length, rawTo + sideBudget)
+
+  if (start > 0) {
+    const firstBoundary = text.slice(start, rawFrom).search(/\s/)
+    if (firstBoundary >= 0) start += firstBoundary + 1
+  }
+  if (end < text.length) {
+    const after = text.slice(rawTo, end)
+    const lastBoundary = Math.max(after.lastIndexOf(' '), after.lastIndexOf('\n'))
+    if (lastBoundary > 0) end = rawTo + lastBoundary
+  }
+
+  const beforeValue = text.slice(start, rawFrom).replace(/\s+/g, ' ').trim()
+  const afterValue = text.slice(rawTo, end).replace(/\s+/g, ' ').trim()
+  const hasSpaceBeforeError = rawFrom > 0 && /\s/.test(text[rawFrom - 1])
+  const hasSpaceAfterError = rawTo < text.length && /\s/.test(text[rawTo])
+
+  return {
+    before: `${start > 0 ? '…' : ''}${beforeValue}${beforeValue && hasSpaceBeforeError ? ' ' : ''}`,
+    error,
+    after: `${afterValue && hasSpaceAfterError ? ' ' : ''}${afterValue}${end < text.length ? '…' : ''}`,
+  }
+}
+
+function rawPositionFromDocument(snapshot, position) {
+  const containing = snapshot.segments.find(
+    segment => segment.pmFrom <= position && position <= segment.pmTo
+  )
+  if (containing) {
+    return containing.rawFrom + Math.min(
+      position - containing.pmFrom,
+      containing.rawTo - containing.rawFrom
+    )
+  }
+  const next = snapshot.segments.find(segment => segment.pmFrom > position)
+  return next?.rawFrom ?? snapshot.text.length
+}
+
+function refreshIssueExcerpts(issues) {
+  if (!editor.value) return
+  const snapshot = buildDocumentSnapshot(editor.value)
+  Object.values(issues).forEach(issue => {
+    const rawFrom = rawPositionFromDocument(snapshot, issue._range.from)
+    const rawTo = rawPositionFromDocument(snapshot, issue._range.to)
+    issue._excerpt = buildIssueExcerpt(snapshot.text, rawFrom, rawTo)
+  })
+}
+
 function applyIssuesToDocument(issues, snapshot) {
   if (!editor.value) return 0
   Object.keys(issuesMap).forEach(key => delete issuesMap[key])
+  activeIssueId.value = null
 
   const { state, view } = editor.value
   const markType = state.schema.marks.grammarIssue
@@ -1876,7 +2022,8 @@ function applyIssuesToDocument(issues, snapshot) {
       issuesMap[issue.id] = {
         ...issue,
         _range: targetRange,
-        _highlightRange: highlightRange
+        _highlightRange: highlightRange,
+        _excerpt: buildIssueExcerpt(snapshot.text, rawFrom, rawTo)
       }
       tr.addMark(
         highlightRange.from,
@@ -1899,6 +2046,24 @@ function openIssuesDrawer() {
 
 function closeIssuesDrawer() {
   issuesDrawerOpen.value = false
+}
+
+function focusIssueFromCard(issue) {
+  if (mobileIssuesMode.value || !editor.value || !issue?._highlightRange) return
+  const range = issue._highlightRange
+  const docSize = editor.value.state.doc.content.size
+  if (range.from < 0 || range.to > docSize || range.from >= range.to) return
+
+  activeIssueId.value = issue.id
+  closePopover()
+  editor.value.commands.setTextSelection(range)
+  editor.value.commands.focus()
+
+  requestAnimationFrame(() => {
+    const target = [...editor.value.view.dom.querySelectorAll('.grammar-highlight')]
+      .find(element => element.dataset.issueId === issue.id)
+    target?.scrollIntoView?.({ behavior: 'smooth', block: 'center', inline: 'nearest' })
+  })
 }
 
 const ANALYSIS_TAB_ORDER = ['grammar', 'quality', 'ai']
@@ -2032,7 +2197,10 @@ async function runGrammarCheck(sequence) {
   statusMessage.value = 'Checking grammar…'
 
   try {
-    const response = await grammarApi.checkGrammar(snapshot.text, 'en-US', controller.signal)
+    const response = await grammarApi.checkGrammar(snapshot.text, 'en-US', controller.signal, {
+      capture: !!appStore.user && !practiceBaselinePending,
+      excludedFingerprints: [...practiceBaselineFingerprints]
+    })
     if (
       sequence !== requestSequence ||
       !editor.value ||
@@ -2040,8 +2208,17 @@ async function runGrammarCheck(sequence) {
     ) return
 
     if (!response?.success) throw new Error(response?.error || 'Failed to inspect grammar.')
+    const responseIssues = Array.isArray(response.issues) ? response.issues : []
+    if (practiceBaselinePending) {
+      practiceBaselineFingerprints = new Set(responseIssues.map(issue => issue.practice_fingerprint).filter(Boolean))
+      practiceBaselinePending = false
+    } else {
+      responseIssues.forEach(issue => {
+        if (issue.practice_fingerprint) practiceBaselineFingerprints.add(issue.practice_fingerprint)
+      })
+    }
     const appliedCount = applyIssuesToDocument(
-      Array.isArray(response.issues) ? response.issues : [],
+      responseIssues,
       snapshot
     )
     statusKind.value = 'success'
@@ -2219,9 +2396,11 @@ const handleAccept = (issue) => {
   view.dispatch(tr)
   Object.keys(issuesMap).forEach(id => delete issuesMap[id])
   Object.assign(issuesMap, remaining)
+  refreshIssueExcerpts(issuesMap)
   lastObservedText = buildDocumentSnapshot(editor.value).text
   updateRemainingStatus()
-  fixAllNotice.value = ''
+  acceptAllNotice.value = ''
+  if (activeIssueId.value === issue.id) activeIssueId.value = null
   closePopover()
   editor.value.commands.focus()
 }
@@ -2242,7 +2421,8 @@ const handleIgnore = (issue) => {
   if (tr.docChanged) view.dispatch(tr)
   delete issuesMap[issue.id]
   updateRemainingStatus()
-  fixAllNotice.value = ''
+  acceptAllNotice.value = ''
+  if (activeIssueId.value === issue.id) activeIssueId.value = null
   closePopover()
 }
 
@@ -2252,7 +2432,7 @@ function issueMatchesDocument(issue, doc) {
     doc.textBetween(range.from, range.to, BLOCK_SEPARATOR) === (issue.original || '')
 }
 
-function handleFixAll() {
+function handleAcceptAll() {
   if (!editor.value || issueList.value.length === 0) return
   if (debounceTimer) clearTimeout(debounceTimer)
   if (activeController) activeController.abort()
@@ -2276,9 +2456,11 @@ function handleFixAll() {
 
   if (selected.length === 0) {
     updateRemainingStatus()
-    fixAllNotice.value = `Fixed 0 issues; skipped ${skipped} outdated or conflicting suggestion(s).`
+    acceptAllNotice.value = `Accepted 0 issues; skipped ${skipped} outdated or conflicting suggestion(s).`
     return
   }
+
+  selected.forEach(issue => recordIssueForPractice(issue))
 
   const tr = state.tr
   for (const issue of [...selected].reverse()) {
@@ -2323,10 +2505,12 @@ function handleFixAll() {
   view.dispatch(tr)
   Object.keys(issuesMap).forEach(id => delete issuesMap[id])
   Object.assign(issuesMap, remaining)
+  refreshIssueExcerpts(issuesMap)
   lastObservedText = buildDocumentSnapshot(editor.value).text
   updateRemainingStatus()
   closePopover()
-  fixAllNotice.value = `Fixed ${selected.length} issue(s)${skipped ? `; skipped ${skipped} outdated or conflicting suggestion(s)` : ''}.`
+  activeIssueId.value = null
+  acceptAllNotice.value = `Accepted ${selected.length} issue(s)${skipped ? `; skipped ${skipped} outdated or conflicting suggestion(s)` : ''}.`
 }
 
 // Global click outside listener
@@ -2348,6 +2532,8 @@ const handleDocumentClick = (e) => {
 
 function handleWindowResize() {
   mobileMorePortal.value = window.innerWidth <= 600
+  mobileIssuesMode.value = window.innerWidth <= 700
+  if (mobileIssuesMode.value) activeIssueId.value = null
   compactEditor.value = window.innerWidth <= 1024
   if (editor.value) syncToolbarState(editor.value)
   scheduleCommentLayout()
@@ -2355,16 +2541,7 @@ function handleWindowResize() {
 
 watch(() => appStore.user, async (user, previousUser) => {
   if (user && !previousUser && !appStore.pendingAuthAction && !userHasEdited) {
-    try {
-      const pointer = localStorage.getItem(activePointerKey(user.id))
-      if (pointer) {
-        const local = loadSavedSession(currentDraftKey(pointer === 'new' ? null : pointer))
-        if (local) applyDocumentSession(local, { dirty: true })
-        else if (pointer !== 'new') applyDocumentSession(await appStore.getDocument(pointer))
-      }
-    } catch {
-      // The editor remains on the guest draft if restoration is unavailable.
-    }
+    await restoreAccountSession(user)
   }
   if (!user && previousUser) {
     const guestDraft = loadSavedSession(GUEST_DRAFT_KEY, true)
@@ -2384,6 +2561,20 @@ onMounted(() => {
   resizeObserver = new ResizeObserver(scheduleCommentLayout)
   if (paperRef.value) resizeObserver.observe(paperRef.value)
   handleWindowResize()
+})
+
+onActivated(() => {
+  appStore.setLogoutGuard(confirmUnsaved)
+  void restoreAccountSession()
+  scheduleCommentLayout()
+})
+
+onDeactivated(() => {
+  if (saveTimer) clearTimeout(saveTimer)
+  if (['unsaved', 'error'].includes(saveStatus.value)) saveSession(editor.value)
+  // The confirmation dialog lives inside this cached view, so do not leave an
+  // invisible guard active while the user is on Practice.
+  appStore.setLogoutGuard(null)
 })
 
 onBeforeUnmount(() => {
@@ -3491,11 +3682,16 @@ onBeforeUnmount(() => {
   height: 18px;
   padding: 0 5px;
   border-radius: 999px;
-  background: #ede9fe;
-  color: #6d28d9;
+  background: #dc2626;
+  color: #fff;
   font-size: 10px;
   font-weight: 800;
   line-height: 1;
+}
+
+:root[data-theme='dark'] .analysis-tab-count {
+  background: #ede9fe;
+  color: #6d28d9;
 }
 
 .grammar-panel {
@@ -3506,8 +3702,9 @@ onBeforeUnmount(() => {
 .sidebar-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
+  margin-bottom: 12px;
 }
 
 .sidebar-header h2 {
@@ -3523,24 +3720,26 @@ onBeforeUnmount(() => {
   margin: 0;
 }
 
-.fix-all-button {
-  width: 100%;
-  margin: 18px 0 12px;
-  padding: 10px;
+.accept-all-button {
+  flex: 0 0 auto;
+  min-height: 34px;
+  margin: 0;
+  padding: 7px 11px;
   border: 0;
   border-radius: 8px;
   background: #5b21b6;
   color: #fff;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
 }
 
-.fix-all-button:disabled {
+.accept-all-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.fix-all-notice, .empty-issues {
+.accept-all-notice, .empty-issues {
   color: #64748b;
   font-size: 12px;
   line-height: 1.5;
@@ -3628,9 +3827,24 @@ onBeforeUnmount(() => {
     padding-right: 4px;
   }
 
-  .issue-cards {
-    overflow: visible;
-    padding-right: 0;
+  .grammar-panel.is-active {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .grammar-panel .sidebar-header,
+  .grammar-panel .accept-all-button,
+  .grammar-panel .accept-all-notice,
+  .grammar-panel .empty-issues {
+    flex: 0 0 auto;
+  }
+
+  .grammar-panel .issue-cards {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 4px;
   }
 
   :root[data-theme='dark'] .analysis-tabs button[aria-selected='true'] {
@@ -3643,6 +3857,23 @@ onBeforeUnmount(() => {
   border-radius: 10px;
   padding: 14px;
   background: var(--surface);
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.issue-card.is-locatable {
+  cursor: pointer;
+}
+
+.issue-card.is-locatable:hover {
+  border-color: #c4b5fd;
+  box-shadow: 0 7px 18px rgba(91, 33, 182, .09);
+}
+
+.issue-card.is-locatable:focus-visible,
+.issue-card.is-active {
+  border-color: #8b5cf6;
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, .16);
+  outline: none;
 }
 
 .issue-card-category {
@@ -3652,14 +3883,54 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
 }
 
-.issue-card h3 {
-  color: #1f2937;
-  font-size: 16px;
-  margin: 4px 0 10px;
+.issue-card-top {
+  margin-bottom: 9px;
+}
+
+.issue-card-correction {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 10px;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.issue-card-context {
+  min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.issue-card-replacement, .issue-card-explanation {
+.issue-card-error {
+  border-radius: 4px;
+  padding: 1px 3px;
+  background: #fee2e2;
+  color: #b91c1c;
+  font-weight: 800;
+  text-decoration: underline solid #ef4444 1.5px;
+  text-underline-offset: 2px;
+}
+
+.issue-card-arrow {
+  color: #7c3aed;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.issue-card-suggestion {
+  max-width: 110px;
+  overflow: hidden;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: #dcfce7;
+  color: #047857;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.issue-card-explanation {
   color: #475569;
   font-size: 13px;
   line-height: 1.5;
@@ -3667,12 +3938,9 @@ onBeforeUnmount(() => {
   overflow-wrap: anywhere;
 }
 
-.issue-card-replacement strong {
-  color: #065f46;
-}
-
 .issue-card-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 12px;
 }
@@ -3733,6 +4001,8 @@ onBeforeUnmount(() => {
 .ai-analyze-button { width: 100%; min-height: 38px; border: 0; border-radius: 9px; background: #6d28d9; color: #fff; font-weight: 800; cursor: pointer; }
 .ai-analyze-button:hover:not(:disabled) { background: #5b21b6; }
 .ai-analyze-button:disabled { opacity: .5; cursor: not-allowed; }
+.ai-detector-scope-hint,
+.ai-detector-scope-result { margin: 0; color: var(--brand-color); font-size: 12px; font-weight: 700; line-height: 1.45; }
 .ai-detector-hint { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.45; }
 .ai-detector-hint--error { color: #b91c1c; }
 .ai-detector-message { display: flex; align-items: center; gap: 9px; margin: 0; padding: 9px; border-radius: 8px; background: var(--accent-bg); color: var(--text); font-size: 12px; }

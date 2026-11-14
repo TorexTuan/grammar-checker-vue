@@ -6,6 +6,8 @@
 
 <script setup>
 import TextEditor from '../components/editor/TextEditor.vue'
+
+defineOptions({ name: 'HomeView' })
 </script>
 
 <style scoped>

@@ -11,10 +11,12 @@ export const grammarApi = {
    * @param {AbortSignal} [signal] - Cancels an obsolete request
    * @returns {Promise<{success: boolean, total_issues: number, sources: Object, issues: Array}>}
    */
-  checkGrammar(text, language = 'en-US', signal) {
+  checkGrammar(text, language = 'en-US', signal, practice = {}) {
     return apiClient.post('/check/', {
       text,
-      language
+      language,
+      capture_practice: practice.capture === true,
+      excluded_practice_fingerprints: practice.excludedFingerprints || []
     }, {
       signal
     })

@@ -7,6 +7,7 @@ export const useAppStore = defineStore('app', {
     user: null,
     loading: false,
     authReady: false,
+    authInitializationError: '',
     authOpen: false,
     authMode: 'login',
     authError: '',
@@ -21,13 +22,16 @@ export const useAppStore = defineStore('app', {
       this.loading = status
     },
     async initializeAuth() {
+      this.authReady = false
+      this.authInitializationError = ''
       try {
         await authApi.csrf()
         const response = await authApi.me()
         this.user = response.user
         if (this.user) await this.fetchDocuments()
-      } catch {
+      } catch (error) {
         this.user = null
+        this.authInitializationError = error.message || 'Unable to connect to the authentication service.'
       } finally {
         this.authReady = true
       }

@@ -91,10 +91,9 @@
 :root[data-theme='dark'] .tiptap-content h1,
 :root[data-theme='dark'] .tiptap-content h2,
 :root[data-theme='dark'] .tiptap-content h3,
-:root[data-theme='dark'] .issue-card h3,
 :root[data-theme='dark'] .sidebar-header h2,
 :root[data-theme='dark'] .issue-card-explanation,
-:root[data-theme='dark'] .issue-card-replacement,
+:root[data-theme='dark'] .issue-card-context,
 :root[data-theme='dark'] .explanation-text,
 :root[data-theme='dark'] .popover-actions,
 :root[data-theme='dark'] .format-button,
@@ -105,7 +104,7 @@
 
 :root[data-theme='dark'] .doc-status,
 :root[data-theme='dark'] .sidebar-header p,
-:root[data-theme='dark'] .fix-all-notice,
+:root[data-theme='dark'] .accept-all-notice,
 :root[data-theme='dark'] .empty-issues,
 :root[data-theme='dark'] .hint-text,
 :root[data-theme='dark'] .shortcut-tip,
@@ -124,6 +123,23 @@
 :root[data-theme='dark'] .issue-card,
 :root[data-theme='dark'] .format-toolbar {
   border-color: #3d4052;
+}
+
+:root[data-theme='dark'] .issue-card.is-locatable:hover,
+:root[data-theme='dark'] .issue-card.is-locatable:focus-visible,
+:root[data-theme='dark'] .issue-card.is-active {
+  border-color: #8b5cf6;
+  box-shadow: 0 0 0 3px rgba(167, 139, 250, .2);
+}
+
+:root[data-theme='dark'] .issue-card-error {
+  background: rgba(239, 68, 68, .2);
+  color: #fca5a5;
+}
+
+:root[data-theme='dark'] .issue-card-suggestion {
+  background: rgba(16, 185, 129, .18);
+  color: #6ee7b7;
 }
 
 :root[data-theme='dark'] .format-button:hover,
